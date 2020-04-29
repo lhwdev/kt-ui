@@ -1,0 +1,34 @@
+<idea-plugin>
+	<id>com.lhwdev.ktui.idea-plugin</id>
+	<name>kt-ui</name>
+	<version>0.0.1</version>
+	
+	<vendor email="lhwdev6@outlook.com">lhwdev</vendor>
+	
+	<description><![CDATA[
+		Assists writing kt ui code and provides diagnoses and previewing ui.
+    ]]></description>
+	
+	
+	<depends>com.intellij.modules.lang</depends>
+	<depends>com.intellij.java</depends>
+	<depends>org.jetbrains.plugins.gradle</depends>
+	<depends>org.jetbrains.kotlin</depends>
+	
+	<extensions defaultExtensionNs="org.jetbrains.kotlin">
+		<storageComponentContainerContributor
+			implementation="com.lhwdev.ktui.plugin.compiler.WidgetAnnotationChecker" />
+		<storageComponentContainerContributor
+			implementation="com.lhwdev.ktui.plugin.compiler.TryCatchWidgetChecker" />
+		<!--		<diagnosticSuppressor implementation="androidx.compose.plugins.idea.IdeComposeDiagnosticSuppressor"/>-->
+	</extensions>
+	
+	<extensions defaultExtensionNs="com.intellij">
+		<annotator language="kotlin"
+			implementationClass="com.lhwdev.ktui.plugin.idea.WidgetAnnotator" />
+		<additionalTextAttributes scheme="Default"
+			file="colorSchemes/WidgetAnnotatorColorSchemeDefault.xml" />
+		<colorSettingsPage implementation="com.lhwdev.ktui.plugin.idea.UiColorSettingsPage" />
+	</extensions>
+	
+</idea-plugin>

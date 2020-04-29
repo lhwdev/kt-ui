@@ -1,0 +1,307 @@
+@file:OptIn(ExperimentalUnsignedTypes::class)
+@file:Suppress("NOTHING_TO_INLINE")
+
+package com.lhwdev.ktui.compilerPlugin
+
+
+// ANSI utilities
+
+const val sEsc = '\u001b'
+
+
+interface AnsiElement {
+	val ansiEscapeCode: String
+}
+
+interface AnsiSgrParameters {
+	val modes: IntArray
+}
+
+fun AnsiSgrParameters.toAnsiPart() = buildString {
+	modes.joinTo(buffer = this, separator = ";")
+}
+
+fun AnsiSgrParameters.toAnsiString() = buildString {
+	append(sEsc)
+	append('[')
+	modes.joinTo(buffer = this, separator = ";")
+	append('m')
+}
+
+inline fun AnsiSgrParameters(vararg modes: Int): AnsiSgrParameters = AnsiSgrParametersImpl(modes)
+
+operator fun AnsiSgrParameters.plus(operand: AnsiSgrParameters) =
+	AnsiSgrParameters(*(modes + operand.modes))
+
+
+@PublishedApi
+internal data class AnsiSgrParametersImpl(override val modes: IntArray) : AnsiSgrParameters {
+	override fun equals(other: Any?) = when {
+		this === other -> true
+		other !is AnsiSgrParameters -> false
+		else -> modes.contentEquals(other.modes)
+	}
+	
+	override fun hashCode() = modes.contentHashCode()
+}
+
+typealias AnsiColor = AnsiColorRgb
+//sealed class AnsiColor {
+//	abstract fun toMode(isBackground: Boolean): AnsiSgrParameters
+//}
+
+//data class AnsiColor16 constructor(val number: Int, val isBright: Boolean = false) : AnsiColor() {
+//	companion object {
+//		val black = AnsiColor16(0)
+//		val red = AnsiColor16(1)
+//		val green = AnsiColor16(2)
+//		val yellow = AnsiColor16(3)
+//		val blue = AnsiColor16(4)
+//		val purple = AnsiColor16(5)
+//		val cyan = AnsiColor16(6)
+//		val white = AnsiColor16(7)
+//
+//		val blackBright = AnsiColor16(0, true)
+//		val redBright = AnsiColor16(1, true)
+//		val greenBright = AnsiColor16(2, true)
+//		val yellowBright = AnsiColor16(3, true)
+//		val blueBright = AnsiColor16(4, true)
+//		val purpleBright = AnsiColor16(5, true)
+//		val cyanBright = AnsiColor16(6, true)
+//		val whiteBright = AnsiColor16(7, true)
+//	}
+//
+//	override fun toMode(isBackground: Boolean) =
+//		AnsiSgrParameters(number + (if(isBackground) 10 else 0) + if(isBright) 90 else 30)
+//}
+//
+//// ESC[ 38;5;⟨n⟩ m Select foreground color
+//// ESC[ 48;5;⟨n⟩ m Select background color
+////   0-  7:  standard colors (as in ESC [ 30–37 m)
+////   8- 15:  high intensity colors (as in ESC [ 90–97 m)
+////  16-231:  6 × 6 × 6 cube (216 colors): 16 + 36 × r + 6 × g + b (0 ≤ r, g, b ≤ 5)
+//// 232-255:  grayscale from black to white in 24 steps
+//@OptIn(ExperimentalUnsignedTypes::class)
+//data class AnsiColor256(val number: UByte) : AnsiColor() {
+//	companion object {
+//		fun standard(color: AnsiColor16) =
+//			AnsiColor256(color.number.toUByte().let { if(color.isBright) (it + 8u).toUByte() else it })
+//
+//		/** red, green, and blue should be in 0..5 */
+//		fun rgb5(red: Int, green: Int, blue: Int): AnsiColor256 {
+//			assert(red in 0..5)
+//			assert(green in 0..5)
+//			assert(blue in 0..5)
+//
+//			return AnsiColor256((16 + 36 * red + 6 * green + blue).toUByte())
+//		}
+//
+//		private const val sRgbGreyScaleCriteria = 0.2f
+//		fun rgb(red: Float, green: Float, blue: Float): AnsiColor256 {
+//			val average = (red + green + blue) / 3f
+//			return if(abs(red - average) < sRgbGreyScaleCriteria && abs(green - average) < sRgbGreyScaleCriteria && abs(blue - average) < sRgbGreyScaleCriteria)
+//				greyScale(average)
+//			else rgbRaw(red, green, blue)
+//		}
+//
+//		private const val sRgbGreyScaleCriteriaInt = 255 / 5
+//		fun rgb(color: AnsiColorRgb): AnsiColor256 {
+//			val red = color.red.toInt()
+//			val green = color.green.toInt()
+//			val blue = color.blue.toInt()
+//
+//			val average = (red + green + blue) / 3
+//			return if(abs(red - average) < sRgbGreyScaleCriteriaInt && abs(green - average) < sRgbGreyScaleCriteriaInt && abs(blue - average) < sRgbGreyScaleCriteriaInt)
+//				greyScale23(average * 23 / 255)
+//			else rgb5(red * 5 / 255, green * 5 / 255, blue * 5 / 255)
+//		}
+//
+//		fun rgbRaw(red: Float, green: Float, blue: Float) =
+//			rgb5((red * 5).toInt(), (green * 5).toInt(), (blue * 5).toInt())
+//
+//		fun rgbRaw(color: AnsiColorRgb) =
+//			rgb5(color.red.toInt() * 5 / 255, color.green.toInt() * 5 / 255, color.blue.toInt() * 5 / 255)
+//
+//		/** step should be in 0..23 */
+//		fun greyScale23(step: Int): AnsiColor256 {
+//			assert(step in 0..23)
+//			return AnsiColor256((232 + step).toUByte())
+//		}
+//
+//		inline fun greyScale(step: Float) = greyScale23((step * 23).toInt())
+//	}
+//
+//	override fun toMode(isBackground: Boolean) =
+//		AnsiSgrParameters(if(isBackground) 48 else 38, 5, number.toInt())
+//}
+
+data class AnsiColorRgb constructor(val red: UByte, val green: UByte, val blue: UByte)
+//	: AnsiColor() {
+	{
+	constructor(combined: Int) : this((combined shr 16).toUByte(), (combined shr 8 and 0xff00).toUByte(), (combined and 0xff).toUByte())
+	
+	companion object {
+		fun greyScale(brightness: UByte) = AnsiColorRgb(brightness, brightness, brightness)
+		
+		val black = AnsiColorRgb(0x000000)
+		val red = AnsiColorRgb(0xff3300)
+		val green = AnsiColorRgb(0x00ff33)
+		val yellow = AnsiColorRgb(0xf0c022)
+		val blue = AnsiColorRgb(0x0033ff)
+		val purple = AnsiColorRgb(0xbb11cc)
+		val cyan = AnsiColorRgb(0x33ccee)
+		val white = AnsiColorRgb(0xf8f8f8)
+	}
+	
+//	override
+	fun toMode(isBackground: Boolean) =
+		AnsiSgrParameters(if(isBackground) 48 else 38, 2, red.toInt(), green.toInt(), blue.toInt())
+}
+
+
+inline fun AnsiColorRgb.transformEach(block: (Int) -> Int) =
+	AnsiColorRgb(block(red.toInt()).toUByte(), block(green.toInt()).toUByte(), block(blue.toInt()).toUByte())
+
+fun mix(a: AnsiColorRgb, b: AnsiColorRgb, factor: Float): AnsiColorRgb {
+	val factor2 = 1f - factor
+	return AnsiColorRgb(red = (a.red.toByte() * factor + b.red.toByte() * factor2).toByte().toUByte(),
+		green = (a.red.toByte() * factor + b.red.toByte() * factor2).toByte().toUByte(),
+		blue = (a.red.toByte() * factor + b.red.toByte() * factor2).toByte().toUByte())
+}
+
+
+
+
+//private val sAnsiColor16RgbMapping = mapOf(
+//	AnsiColor16.black to AnsiColorRgb(),
+//	AnsiColor16.red to AnsiColorRgb(),
+//	AnsiColor16.green to AnsiColorRgb(),
+//	AnsiColor16.yellow to AnsiColorRgb(),
+//	AnsiColor16.blue to AnsiColorRgb(),
+//	AnsiColor16.purple to AnsiColorRgb(),
+//	AnsiColor16.cyan to AnsiColorRgb(),
+//	AnsiColor16.white to AnsiColorRgb(),
+//	AnsiColor16.blackBright to AnsiColorRgb(),
+//	AnsiColor16.redBright to AnsiColorRgb(),
+//	AnsiColor16.greenBright to AnsiColorRgb(),
+//	AnsiColor16.yellowBright to AnsiColorRgb(),
+//	AnsiColor16.blueBright to AnsiColorRgb(),
+//	AnsiColor16.purpleBright to AnsiColorRgb(),
+//	AnsiColor16.cyanBright to AnsiColorRgb(),
+//	AnsiColor16.whiteBright to AnsiColorRgb()
+//)
+
+
+//fun AnsiColor.toRgb(): AnsiColorRgb = when(this) {
+//	is AnsiColor16 -> sAnsiColor16RgbMapping.getValue(this)
+//	is AnsiColor256 -> when(number) {
+//		in 0u..7u -> AnsiColor16(number.toInt()).toRgb()
+//		in 8u..15u -> AnsiColor16(number.toInt() - 8).toRgb()
+//		in 16u..231u -> { // 16 + 36 * red + 6 * green + blue (0..5)
+//			val n = number.toInt() - 16
+//			val red = n / 36
+//			val redLeft = n % 36
+//			val green = redLeft / 6
+//			val blue = redLeft % 6
+//			AnsiColorRgb((red / 5f * 255f).toByte().toUByte(), (green / 5f * 255f).toByte().toUByte(), (blue / 5f * 255f).toByte().toUByte())
+//		}
+//		in 232u..255u -> AnsiColorRgb.greyScale((number.toInt() / 23f * 255).toByte().toUByte())
+//		else -> error("This should never never NEVER happen")
+//	}
+//	is AnsiColorRgb -> this
+//}
+
+
+enum class AnsiStyle(val number: Int) : AnsiSgrParameters {
+	reset(0),
+	bold(1),
+	underline(4),
+	framed(51),
+	encircled(52),
+	overlined(53);
+	
+	override val modes: IntArray get() = intArrayOf(number)
+}
+
+class AnsiSgrElement(val color: AnsiSgrParameters) : AnsiElement {
+	override val ansiEscapeCode: String get() = color.toAnsiString()
+}
+
+
+// back to log
+
+
+enum class LogStyleMergeFlag { default, mergeStyle, mergeAll }
+
+data class LogStyle(val color: AnsiColor? = null, val isBackground: Boolean? = null, val style: Set<AnsiStyle>? = null) {
+	companion object {
+		fun merge(one: LogStyle?, other: LogStyle?, mergeFlag: LogStyleMergeFlag = LogStyleMergeFlag.default) =
+			when {
+				one == null -> other
+				other == null -> one
+				else -> one.merge(other, mergeFlag)
+			}
+	}
+	
+	fun merge(other: LogStyle, mergeFlag: LogStyleMergeFlag) = when(mergeFlag) {
+		LogStyleMergeFlag.default -> LogStyle(
+			color = color ?: other.color,
+			isBackground = isBackground ?: other.isBackground,
+			style = style ?: other.style
+		)
+		LogStyleMergeFlag.mergeStyle -> LogStyle(
+			color = color ?: other.color,
+			isBackground = isBackground ?: other.isBackground,
+			style = mergeStyle(other.style)
+		)
+		LogStyleMergeFlag.mergeAll -> LogStyle(
+			color = mergeColor(other.color),
+			isBackground = isBackground ?: other.isBackground,
+			style = mergeStyle(other.style)
+		)
+	}
+	
+	private fun mergeColor(other: AnsiColor?): AnsiColor? {
+		other ?: return color
+		return color?.let { mix(it, other, 0.7f) } ?: other
+	}
+	
+	private fun mergeStyle(other: Set<AnsiStyle>?): Set<AnsiStyle>? {
+		other ?: return style
+		return style?.plus(other) ?: other
+	}
+	
+	override fun toString() = buildString {
+		append("$sEsc[")
+		val partList = mutableListOf<String>()
+		color?.toMode(isBackground ?: false)?.toAnsiPart()?.let(partList::add)
+		style?.forEach { partList.add(it.toAnsiPart()) }
+		
+		partList.joinTo(this, separator = ";")
+		
+		append('m')
+	}
+}
+
+class ColoredLogScope private constructor(private val output: ColorLogStream, private val parentScope: ColoredLogScope?, private val newStyle: LogStyle?, mergeFlag: LogStyleMergeFlag) {
+	private var style: LogStyle = LogStyle.merge(newStyle, parentScope?.style, mergeFlag)
+		?: LogStyle()
+	
+	init {
+		output.doLog(style.toString())
+	}
+	
+	inline fun CharSequence.unaryPlus() {
+		log(this)
+	}
+	
+	fun log() {}
+	
+	fun color(color: AnsiColor) {
+		style = style.copy(color = color)
+	}
+	
+	fun color(color: AnsiColor, block: ColoredLogScope.() -> Unit) {
+	
+	}
+}

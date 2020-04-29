@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel>
+      <module name="ASM_base-api.buildSrc" target="13" />
+      <module name="ASM_base-api.buildSrc.main" target="13" />
+      <module name="ASM_base-api.buildSrc.test" target="13" />
+      <module name="ASM_base-api.compiler-plugin" target="13" />
+      <module name="ASM_base-api.compiler-plugin.main" target="13" />
+      <module name="ASM_base-api.compiler-plugin.test" target="13" />
+      <module name="ASM_base-api.core" target="13" />
+      <module name="ASM_base-api.core.androidAndroidTest" target="1.6" />
+      <module name="ASM_base-api.core.androidAndroidTestDebug" target="1.6" />
+      <module name="ASM_base-api.core.androidDebug" target="1.6" />
+      <module name="ASM_base-api.core.androidDebugAndroidTest" target="1.6" />
+      <module name="ASM_base-api.core.androidDebugUnitTest" target="1.6" />
+      <module name="ASM_base-api.core.androidMain" target="1.6" />
+      <module name="ASM_base-api.core.androidRelease" target="1.6" />
+      <module name="ASM_base-api.core.androidReleaseUnitTest" target="1.6" />
+      <module name="ASM_base-api.core.androidTest" target="1.6" />
+      <module name="ASM_base-api.core.androidTestDebug" target="1.6" />
+      <module name="ASM_base-api.core.androidTestRelease" target="1.6" />
+      <module name="ASM_base-api.core.commonMain" target="1.6" />
+      <module name="ASM_base-api.core.commonTest" target="1.6" />
+      <module name="ASM_base-api.core.jvmMain" target="1.6" />
+      <module name="ASM_base-api.core.jvmTest" target="1.6" />
+      <module name="ASM_base-api.core.main" target="11" />
+      <module name="ASM_base-api.core.test" target="11" />
+      <module name="ASM_base-api.test" target="13" />
+      <module name="ASM_base-api.test.main" target="13" />
+      <module name="ASM_base-api.test.test" target="13" />
+      <module name="ASM_base_api.buildSrc.main" target="1.8" />
+      <module name="ASM_base_api.buildSrc.test" target="1.8" />
+      <module name="ASM_base_api.core.main" target="1.8" />
+      <module name="ASM_base_api.core.test" target="1.8" />
+      <module name="ui.buildSrc.main" target="1.8" />
+      <module name="ui.buildSrc.test" target="1.8" />
+      <module name="ui.core.main" target="1.8" />
+      <module name="ui.core.test" target="1.8" />
+    </bytecodeTargetLevel>
+  </component>
+</project>

@@ -1,0 +1,97 @@
+@file:Suppress("NOTHING_TO_INLINE")
+
+package com.lhwdev.ktui
+
+import kotlin.reflect.KProperty
+
+
+/**
+ * A intermediate representation to the widget tree.
+ * Normally this is used in [Widget] to build a widget.
+ *
+ * [BuildScope] can have a partial reference to the widget tree. As this scope is used while
+ * building the widget tree, it cannot access to its children and its ancestors' element(see
+ * [Element]).
+ *
+ * However it can get [Ambient] provided by its ancestors.
+ *
+ * [BuildScope] contains information about:
+ * - what related to lifecycle (like [memo], [persist] or [state])
+ */
+interface BuildScope : UiScope {
+	
+	
+	/// Memorization
+	
+	/**
+	 * Memorizes the value during a widget's lifecycle so that [init] is only called once per a
+	 * widget placed in a widget hierarchy.
+	 */
+	fun <T> memo(init: () -> T): T
+	
+	
+	/**
+	 * [block] is only called once per a widget placed in a widget hierarchy.
+	 */
+	fun first(block: () -> Unit)
+	
+	/// Internals
+	var annotation: Any?
+	
+}
+
+/**
+ * Persists the value during a widget's lifecycle. [Persist] can be used with kotlin's delegated
+ * property form like below:
+ * ```kotlin
+ * var myPersistedValue by persist { 123 }
+ * ```
+ *
+ * See also:
+ * - [BuildScope.memo], which is used internally by this function and memorizes its value during a widget's
+ * lifecycle.
+ * - [state], which is similar to [persist], but causes rebuilding when its value is changed.
+ */
+inline fun <T> BuildScope.persist(noinline init: () -> T): Persist<T> = memo { Persist(init) }
+
+/**
+ * Persists the value during a widget's lifecycle, rebuilding the widget tree if a state is
+ * changed. [State] can be used with kotlin's delegated property form like below:
+ * ```kotlin
+ * var myState by state { 123 }
+ * ```
+ *
+ * See also:
+ * - [BuildScope.memo], which is used internally by this function and memorizes its value during a widget's
+ * lifecycle.
+ * - [persist], which is similar to [state], but isn't rebuilt when its value is changed.
+ */
+inline fun <T> BuildScope.state(noinline init: () -> T): State<T> = memo { State(this, init) }
+
+
+/**
+ * A simple holder of a persisted value. Normally created by [BuildScope.persist].
+ * @see BuildScope.persist
+ */
+open class Persist<T>(init: () -> T) {
+	var value: T = init()
+	
+	open operator fun getValue(thisValue: Nothing?, property: KProperty<*>) = value
+	open operator fun setValue(thisValue: Nothing?, property: KProperty<*>, newValue: T) {
+		value = newValue
+	}
+}
+
+
+/**
+ * A holder of a state, whose change of its value causes rebuilding.
+ *
+ * @see Persist
+ * @see BuildScope.state
+ */
+class State<T>(private val scope: BuildScope, init: () -> T) : Persist<T>(init) {
+	override fun setValue(thisValue: Nothing?, property: KProperty<*>, newValue: T) {
+		super.setValue(thisValue, property, newValue)
+		scope.requestRebuild()
+	}
+}

@@ -1,0 +1,13 @@
+* text eol=lf
+
+#
+# The above will handle all files NOT found below
+# https://help.github.com/articles/dealing-with-line-endings/
+# https://github.com/Danimoth/gitattributes
+
+# These are explicitly windows files and should use crlf
+*.bat           text eol=crlf
+
+# These files are explicitly linux files and should use lf
+*.bash          text eol=lf
+*.sh            text eol=lf

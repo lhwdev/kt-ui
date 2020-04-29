@@ -1,0 +1,46 @@
+package com.lhwdev.ktui
+
+import com.lhwdev.ktui.widgets.Proxy
+import com.lhwdev.ktui.widgets.Text
+import io.mockk.mockk
+import kotlin.test.Test
+
+
+// clear, but compiler raises a warning for PascalCase
+@Suppress("functionName")
+fun MyWidget() = Proxy {
+	Row {
+		+Text("Hello, world!")
+		+Text("Me, too!")
+		+HelloWorldWidget(123, "WOW")
+	}
+}
+
+fun HelloWorldWidget(key: Int, value: String): Widget = {
+	+Text(value)
+}
+
+@Test
+fun `api design declaration`() {
+	with(mockk<BuildScope>()) {
+		// memorization
+		val myMemoVal = memo { false }
+		val myState by state { 0 }
+		
+		MyWidget()
+	}
+}
+
+
+@Test
+fun `themed elements`() {
+	/*
+	 * Themed elements: how to theme
+	 *
+	 * TL; DR
+	 * Theme is Widget, like Flutter.
+	 * Styling works in this way:
+	 *  1. find element in widget tree via
+	 *  2.
+	 */
+}

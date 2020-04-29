@@ -1,0 +1,204 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0" is_locked="false">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="ARCIssues" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="AccessorsWereOverridden" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AlwaysNilVariable" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AmbiguousMixinReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="AnnotationOutsideOfMixin" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="ApiName" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ApiNamespace" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ApiParameter" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ArrayIssues" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="AssociatedTypeMismatch" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AtUsage" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="BridgeCastIssues" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="BukkitListenerImplemented" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="BungeeCordListenerImplemented" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="CallDealloc" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="CannotResolve" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ClangTidyInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ConstExpressionRequired" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ConstantOnLHSOfComparison" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ConstantOnRHSOfComparison" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ConstructionIsNotAllowed" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="Constructor" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ConvertFlatMapToFlatten" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="DeprecatedAPI" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="DerivedFunctionsReturnTypeMismatch" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="DuplicateAttribute" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="DuplicateDeclarations" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="DuplicateInterface" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="DuplicateInterfacePrefix" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="DuplicateSwitchCase" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="EmptyImplements" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="EndlessLoop" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="EntityConstructor" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="EnumEntryName" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="namePattern" value="([A-Za-z\d]*|[A-Z_\d]*)" />
+    </inspection_tool>
+    <inspection_tool class="EqualityInConditionalOperator" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="EqualityInConditionalOperatorWithSelf" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="FieldDeclarationSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="FieldMustBeInitialized" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="FormatSpecifiers" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="FullJavaName" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="FullMethodName" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="FunctionImplicitDeclarationInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="FunctionName" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="namePattern" value="[A-Za-z\d]*" />
+    </inspection_tool>
+    <inspection_tool class="FunctionParameterCountMismatch" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="HidesClassScope" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="HidesUpperScope" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="HidingNonVirtualFunction" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ImplementationHasNoInterface" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ImplicitDeclarationOfIvar" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ImplicitIntegerAndEnumConversion" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ImplicitPointerAndIntegerConversion" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="IncompatibleEnums" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="IncompatibleInitializers" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="IncompatiblePointers" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="IncompatibleTypes" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="InitializationIssue" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="InitializerIssues" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="IntegerTypeRequired" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="InterfaceHasNoImplementation" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="InterfaceIsInterface" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidConfigValue" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidInjectorMethodSignature" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidInterfacePrefix" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidMemberReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidMixinPluginRegistration" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidMixinRegistration" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidMixinTarget" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="InvalidParameterAnnotations" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="IsCancelled" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="JniFunctionCorrectness" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="JniMissingFunction" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="JniOnload" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="JniParameters" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="KRUnspecifiedParameters" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="KeyValueCodingInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="LastArgumentMustBeNull" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="LocalValueEscapesScope" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="LocalVariableDeclarationSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MemberVisibility" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="MethodCallSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MethodIsLaterInTheScope" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="MethodName" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="MethodParameterCountMismatch" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="MethodParameterType" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="MethodReturnType" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="MethodSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MissingFormat" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MissingReturn" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="MissingSwitchCase" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="MixinInnerClass" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MixinSuperClass" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="MultipleDeclaration" enabled="false" level="WARNING" enabled_by_default="false">
+      <option name="ignoreForLoopDeclarations" value="true" />
+    </inspection_tool>
+    <inspection_tool class="MultipleTypedDeclaration" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="MultipleVariablesInDeclarationMerged" />
+    <inspection_tool class="NamedResource" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="NestedClassSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="NewExpressionSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="NoAttributeForProperty" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NoClassDefinition" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NoDefaultBaseConstructor" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="NoGetterOrSetter" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NoTranslation" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="NotAssignable" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="NotImplementedFunctions" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotImplementedMethods" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotImplementsProtocol" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotInHierarchyMessage" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotInitializedVariable" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotReleasedValue" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotSuperclass" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="NotVisibleClass" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCDFAInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCGlobalUnused" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCLegacyObjCLiteralInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCLoopDoesntUseConditionVariableInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCNotLocalizedStringInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCNotReleasedIvarInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCSimplifyInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedClassInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedGlobalDeclarationInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedInstanceVariableInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedMacroInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedMethodInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedPropertyInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedStructInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OCUnusedTemplateParameterInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ObsoleteNSLiteral" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OtherCpp" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="OtherObjC" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="OverriddenAttributeMismatch" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OverriddenTypeMismatch" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="OverwriteAuthorRequired" enabled="false" level="WEAK WARNING" enabled_by_default="false" />
+    <inspection_tool class="OverwriteModifiers" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="OverwriteTarget" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="PointerTypeRequired" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="PrivateCategoryShouldBeNearImplementation" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PropertyAndIvarTypeMismatch" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PublicStaticMixinMember" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="RedundantBackticksAroundRawStringLiteral" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="RedundantStringOperation" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ReferenceToMixin" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="ReleasingOfAssignProperties" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ReplaceArraysCopyOfWithCopyOf" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="ReplaceSingleLineLet" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ResourceNotFoundInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ResourceParameter" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="RestSignature" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="ScalarTypeRequired" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="SerializableCanHaveDefaultSerialUID" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SetterForReadonlyProperty" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="SeveralTargetsMessage" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ShadowFieldPrefix" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="ShadowFinalModification" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="ShadowModifiers" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ShadowTarget" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="SignednessMismatch" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="SoftImplementOverrides" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="SpongeLogging" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="StackEmpty" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="StaticnessMismatch" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="StringConstructor" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoreSubstringArguments" value="false" />
+    </inspection_tool>
+    <inspection_tool class="StringLocalizationInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="StringOperationCanBeSimplifiedMerged" />
+    <inspection_tool class="SuperfluousFormat" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="TemplateArgumentsIssues" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="TestFunctionName" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="namePattern" value="[A-Za-z_\d]*" />
+    </inspection_tool>
+    <inspection_tool class="UnavailableInDeploymentTarget" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnnecessaryQualifiedMemberReference" enabled="false" level="WEAK WARNING" enabled_by_default="false" />
+    <inspection_tool class="UnqualifiedMemberReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="UnreachableCode" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnresolvedCollectionMessage" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnresolvedConfigReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="UnresolvedMessage" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnresolvedMixinReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="UnusedExpressionResult" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnusedImportStatement" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnusedIncludeDirective" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="UnusedLocalVariable" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnusedLocalization" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnusedParameter" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UnusedShadowMethodPrefix" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="UnusedSymbol" enabled="true" level="WARNING" enabled_by_default="true">
+      <scope name="Project Files" level="WARNING" enabled="false" />
+    </inspection_tool>
+    <inspection_tool class="UnusedValue" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="UsingZeroAsNil" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ValueMayNotFitIntoReceiver" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="VariableUseSideOnly" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="VolatileLongOrDoubleField" enabled="false" level="WARNING" enabled_by_default="false" />
+  </profile>
+</component>
