@@ -10,8 +10,11 @@ import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
 import org.jetbrains.kotlin.ir.util.copyTypeAndValueArgumentsFrom
+import org.jetbrains.kotlin.ir.util.irCall
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
+import org.jetbrains.kotlin.psi2ir.findFirstFunction
+import kotlin.math.exp
 
 
 /*
@@ -20,10 +23,14 @@ import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
  */
 
 
+// TODO: lambda fun is not skippable
+
 private val defaultValue = IrConstImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, context.irBuiltIns.intType, IrConstKind.Int, 0)
 
 
 class WidgetCallTransformer : UiTransformerBase() {
+	private val fNextId = context.symbolTable.referenceSimpleFunction(module.getPackage(PACKAGE).memberScope.findFirstFunction("nextId") { true })
+	
 	override fun visitFunction(declaration: IrFunction): IrStatement {
 		val declarationInfo = transformedFunctions.values.find { it.function == declaration }
 			?: return super.visitFunction(declaration)
@@ -49,9 +56,18 @@ class WidgetCallTransformer : UiTransformerBase() {
 			val idStateParameter = if(declarationInfo.kind == WidgetTransformationKind.widget) declaration.valueParameters.let { it[it.size - 1] } else null
 //			var isNested = false
 			
+			
+			fun getLocationId() = 123 // TODO
+			
+			
 			override fun visitCall(expression: IrCall): IrExpression {
 				val symbol = expression.symbol
 				val descriptor = symbol.descriptor
+				
+				// special cases
+				
+				// #1. nextId()
+				if(symbol == fNextId) return irBuilder(symbol).irConst(getLocationId())
 
 //				if(isNested) return super.visitCall(expression)
 				
@@ -87,7 +103,7 @@ class WidgetCallTransformer : UiTransformerBase() {
 						if(info.kind == WidgetTransformationKind.widget) {
 							if(!declarationInfo.kind.isWidget) error("@WidgetUtil fun calling @Widget fun: ${declaration.descriptor.dump()} -> ${expression.symbol.descriptor.dump()}")
 							
-							val id = 123 // TODO
+							val id = getLocationId()
 							val state = changesForArguments(expression.valueArguments)
 							
 							val idState = irOr(irConst(id), irShl(irPrimitiveCast(state, context.irBuiltIns.longType), irConst(32))) // state is already shifted

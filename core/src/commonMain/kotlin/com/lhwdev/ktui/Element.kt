@@ -1,13 +1,24 @@
 package com.lhwdev.ktui
 
+import com.lhwdev.ktui.elements.AmbientElement
+import com.lhwdev.ktui.utils.assert
 
-val sEmptyAttrs = emptyArray<Any?>()
+
+val sInternalEmptyAttrs = emptyArray<Any?>()
 
 
-abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseTree {
-	lateinit var attrs: Array<Any?>
+abstract class Element<T> : DiagnoseTree {
+	var id: Int = 0
+		private set
 	
-	var returnValue: Any? = null
+	private var privateState: T? = null
+	
+	@Suppress("UNCHECKED_CAST")
+	val state: T get() = privateState as T
+	
+	private var privateKey: Any? = EMPTY
+	
+	val key: Any? get() = privateKey
 	
 	
 	enum class LifecycleState { created, initialized, attached, detached }
@@ -17,10 +28,10 @@ abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseT
 	lateinit var root: Root
 		private set
 	
-	var parent: Element? = null
+	var parent: Element<*>? = null
 		private set
 	
-	var children = mutableListOf<Element>()
+	abstract val children: List<Element<*>>
 	
 	var isDirty: Boolean = true
 		private set
@@ -33,22 +44,25 @@ abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseT
 	
 	private val pendingEvents = mutableListOf<Event>() // TODO: change to BooleanArray: performance!
 	
-	inline fun visitChildren(block: (child: Element) -> Unit) {
+	inline fun visitChildren(block: (child: Element<*>) -> Unit) {
 		children.forEach(block)
 	}
 	
 	
 	/// Building
 	
-	override fun requestRebuild() {
-		root.requestRebuild(this)
-	}
-	
-	internal fun initialize(root: Root, parent: Element?) { // called on building
+	internal fun initialize(id: Int, state: T, root: Root, parent: Element<*>?) { // called on building
+		this.id = id
+		this.privateState = state
 		this.root = root
 		this.parent = parent
 		
 		changeLifecycleToState(LifecycleState.initialized)
+	}
+	
+	fun requestRebuild() {
+		isDirty = true
+		root.requestRebuild(this)
 	}
 	
 	private fun changeLifecycleToState(state: LifecycleState) {
@@ -60,35 +74,73 @@ abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseT
 		pendingEvents += event
 	}
 	
+	fun appendChild(child: Element<*>) {
+		insertChild(children.size, child)
+	}
+	
+	abstract fun insertChild(index: Int, child: Element<*>)
+	
+	abstract fun removeChild(index: Int)
+	
+	fun removeChild(child: Element<*>) {
+		val index = children.indexOf(child)
+		assert(index != -1)
+		removeChild(index)
+	}
+	
+	fun removeChildren() {
+		for(i in children.indices)
+			removeChild(i)
+	}
+	
+	open fun setChild(index: Int, child: Element<*>) {
+		removeChild(index)
+		insertChild(index, child)
+	}
+	
+	
 	// called while rebuilding
 	
-	internal fun attach() {
+	// #1. on insertChild()
+	open fun attach() { // recursive
 		pendEvent(Event.Attach)
+		
+		// TODO: should be recursive?
+		visitChildren { it.attach() }
 	}
 	
-	internal fun stateUpdated() {
+	// #2. on commitStart~()
+	// don't need to be recursive: done by BuildScope
+	open fun stateUpdated(newState: T) {
 		pendingEvents += Event.Update
+		privateState = newState
 		isDirty = true
+		
+		onRebuilding()
 	}
 	
-	internal fun skipBuilding() {
-		// is this function needed?
+	open fun skipBuilding() {
+		onRebuilding()
 	}
 	
-	internal fun detach() {
+	internal fun detach() { // recursive
 		onDispose()
 		changeLifecycleToState(LifecycleState.detached)
 		
-		attrs = sEmptyAttrs // TODO: in case of memory leakage?
+		visitChildren { it.detach() }
 	}
 	
 	
 	// called after rebuilding
-	internal fun rebuilt() {
-		// 1. onRebuilt
+	
+	internal fun rebuilt() { // recursive
+		// 1. clear dirty status
+		isDirty = false
+		
+		// 2. onRebuilt
 		onRebuilt()
 		
-		// 2. call pending events
+		// 3. call pending events
 		if(pendingEvents.isNotEmpty()) {
 			pendingEvents.forEach {
 				when(it) {
@@ -103,8 +155,8 @@ abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseT
 			pendingEvents.clear()
 		}
 		
-		// 3. children
-		children.forEach { it.rebuilt() }
+		// 4. children
+		visitChildren { it.rebuilt() }
 	}
 	
 	
@@ -117,13 +169,30 @@ abstract class Element(val id: Int, val keyIndex: Int = -1) : UiScope, DiagnoseT
 	open fun onUpdate() {}
 	
 	// calling this happens while building
-	open fun onDispose() {}
+	open fun onRebuilding() {}
 	
 	open fun onRebuilt() {}
 	
+	// calling this happens while building
+	open fun onDispose() {}
+	
 	
 	/// Ambients
-
+	
+	private lateinit var ambients: Set<AmbientElement<*>>
+	
+	// divided to thisAmbient and childrenAmbient to prevent recursive problem
+	internal open fun updateAmbients(thisAmbient: Set<AmbientElement<*>>, childrenAmbient: Set<AmbientElement<*>>) {
+		ambients = thisAmbient
+		visitChildren { it.updateAmbients(childrenAmbient, childrenAmbient) }
+	}
+	
+	@Suppress("UNCHECKED_CAST")
+	fun <T> ambient(ambient: Ambient<T>): T {
+		for(element in ambients)
+			if(element.ambient === ambient) return element.getValue(this) as T
+		return (ambient.defaultValue ?: error("No ambient found: $ambient")).invoke()
+	}
 //	private lateinit var ambients: Set<AmbientData<*>>
 //
 //	open fun updateAmbients(parentAmbients: Set<AmbientData<*>>) {

@@ -1,65 +1,38 @@
 package com.lhwdev.ktui
 
+import com.lhwdev.ktui.elements.WidgetElement
+import com.lhwdev.ktui.elements.WidgetState
+
 
 // Widget implementation v2
-// TODO: if a Widget throws an exception and get caught by ancestor call stack: then end is not called
 
 
-private val sEmptyKey = Any()
 private const val sAllChanged = 0xffffffff.toInt()
 
 
 class BuildScopeImpl(val root: Root) : BuildScope() {
-	override var currentElement: Element = root
+	override var currentElement: Element<*> = root
 	private var index = 0
-	private var lastElementCreator: ElementCreator? = null
 	
 	
-	private fun locateWidgetAndBringNextIfPossible(id: Int, key: Any?): Element? { // TODO: key delegation
-		val children = currentElement.children
+	private inline val widgetElement get() = currentElement as WidgetElement
+	
+	
+	private fun locateWidgetAndBringNextIfPossible(id: Int, key: Any?): Element<*>? { // TODO: key delegation
+		val current = currentElement
+		val children = current.children
 		for(i in index until children.size) {
 			val child = children[i]
-			@Suppress("SuspiciousEqualsCombination")
-			if(id == child.id && (key === sEmptyKey || key == child.attrs[child.keyIndex])) {
+			if(id == child.id && key == child.key) {
 				if(i != index) {// this is not the next element
-					children.removeAt(i)
-					children.add(index, child)
+					current.removeChild(i)
+					current.insertChild(index, child)
 				}
 				
 				return child
 			}
 		}
 		return null
-	}
-	
-	private fun createElement(id: Int, attrs: Array<Any?>, keyIndex: Int): Element {
-		val creator = lastElementCreator
-		return (if(creator != null) {
-			lastElementCreator = null
-			creator(id, keyIndex)
-		} else WidgetElement(id, keyIndex)).also {
-			it.attrs = attrs
-			it.initialize(root, currentElement)
-		}
-	}
-	
-	private fun resolveChanges(attrsBefore: Array<Any?>, attrs: Array<Any?>, state: Int): Int {
-		inline fun stateAt(index: Int) = (state shr (index * 2)) and 0x3
-		
-		var changes = 0
-		
-		for(i in attrs.indices) {
-			val changedNow = when(val stateNow = stateAt(i)) {
-				0x0 /* 00 */ -> attrsBefore[i] != attrs[i]
-				0x2 /* 10 */ -> false
-				0x3 /* 11 */ -> true
-				else -> error("Unexpected value $stateNow")
-			}
-			
-			changes = changes or ((if(changedNow) 1 else 0) shl i)
-		}
-		
-		return changes
 	}
 	
 	/*
@@ -76,33 +49,74 @@ class BuildScopeImpl(val root: Root) : BuildScope() {
 	 *  [34]  [35] - p2
 	 * ...
 	 */
+	@Suppress("UNCHECKED_CAST")
 	override fun start(idState: Long, attrs: Array<Any?>, keyIndex: Int): Int {
 		val id = idState.toInt() // [0]~[31]
-		val last = locateWidgetAndBringNextIfPossible(id, if(keyIndex == -1) sEmptyKey else attrs[keyIndex])
 		
-		if(last == null) { // newly created or the key differs
-			val element = createElement(id, attrs, keyIndex)
-			currentElement.children.add(index, element)
-			currentElement = element
+		val last = startTransactWithElement(id, internalKeyOf(attrs, keyIndex)) as WidgetElement?
+		if(last == null) {
+			val state = WidgetState(attrs, keyIndex)
+			commitStartWithElementOnCreated(WidgetElement(), state)
 			return sAllChanged
 		}
 		
 		val state = idState.shr(32).toInt()
+		val changes = internalResolveChanges(last.attrs, attrs, state, last.isDirty)
 		
-		val changes = resolveChanges(last.attrs, attrs, state)
-		last.attrs = attrs
-		currentElement = last
-		
-		// in this case, the widget is already inserted and brought to the appropriate index([index])
+		commitStartWithElement(last, last.state, changes != 0)
 		
 		return changes
+//		val last = locateWidgetAndBringNextIfPossible(id, if(keyIndex == -1) sEmptyKey else attrs[keyIndex])
+//
+//		if(last == null) { // newly created or the key differs
+//			val element = createElement(id, attrs, keyIndex)
+//			currentElement.insertChild(index, element)
+//			currentElement = element
+//			return sAllChanged
+//		}
+//
+//		val state = idState.shr(32).toInt()
+//
+//		val changes = resolveChanges(last.attrs, attrs, state)
+//		last.stateUpdated(attrs)
+//		currentElement = last
+//
+//		// in this case, the widget is already inserted and brought to the appropriate index([index])
+//
+//		return changes
 	}
 	
-	override fun end(returnValue: Any?) {
-		currentElement.apply {
-			this.returnValue = returnValue
-			stateUpdated()
+	private var lastId: Int = 0
+	private var lastKey: Any? = EMPTY
+	
+	override fun startTransactWithElement(id: Int, key: Any?): Element<*>? {
+		val last = locateWidgetAndBringNextIfPossible(id, key)
+		if(last == null) {
+			lastId = id
+			lastKey = key
 		}
+		
+		return last
+	}
+	
+	override fun <T> commitStartWithElement(last: Element<T>, state: T, isUpdated: Boolean) {
+		// in this case, the widget is already inserted and brought to the appropriate index([index])
+		if(isUpdated)
+			last.stateUpdated(state)
+		
+		currentElement = last
+	}
+	
+	override fun <T> commitStartWithElementOnCreated(element: Element<T>, state: T) {
+		// newly created or the key differs
+		element.initialize(lastId, state, root, currentElement)
+		currentElement.insertChild(index, element)
+		currentElement = element
+	}
+	
+	
+	override fun end(returnValue: Any?) {
+		widgetElement.returnValue = returnValue
 		end()
 	}
 	
@@ -115,10 +129,13 @@ class BuildScopeImpl(val root: Root) : BuildScope() {
 		val skipped = currentElement
 		end()
 		skipped.skipBuilding()
-		return skipped.returnValue
+		return (skipped as WidgetElement).returnValue
 	}
 	
-	override fun assignNextElement(elementCreator: ElementCreator) {
-		lastElementCreator = elementCreator
+	
+	override fun nextItem() = widgetElement.nextItem()
+	
+	override fun updateItem(item: Any?) {
+		widgetElement.updateItem(item)
 	}
 }

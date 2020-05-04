@@ -4,6 +4,11 @@ import com.lhwdev.ktui.utils.lerp
 
 
 inline class Color(private val value: UInt) {
+	companion object {
+		val black = Color(0xff000000u)
+	}
+	
+	
 	constructor(value: Long) : this(value.toUInt()) // temporary
 	
 	constructor(alpha: Int, red: Int, green: Int, blue: Int) : this((

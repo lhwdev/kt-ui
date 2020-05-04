@@ -1,8 +1,10 @@
 package com.lhwdev.ktui
 
+import com.lhwdev.ktui.elements.ProxyElement
 
-class Root(state: WidgetState) : Element(state) {
-	fun requestRebuild(element: Element) {
+
+class Root : ProxyElement<Unit>() {
+	fun requestRebuild(element: Element<*>) {
 	
 	}
 }

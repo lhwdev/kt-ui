@@ -9,6 +9,9 @@ package com.lhwdev.ktui
 @WidgetUtil
 fun currentScope(): BuildScope = throw NotImplementedError("Implemented in compiler plugin")
 
+@Widget
+fun nextId(): Int = throw NotImplementedError("Implemented in compiler plugin")
+
 fun BuildScope.bridgeCall(widget: @Widget () -> Unit) {
 	throw NotImplementedError("Implemented in compiler plugin")
 }

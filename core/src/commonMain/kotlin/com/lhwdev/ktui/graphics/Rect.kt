@@ -2,6 +2,8 @@ package com.lhwdev.ktui.graphics
 
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 
 /**
@@ -21,6 +23,12 @@ data class Rect(val left: Float, val top: Float, val right: Float, val bottom: F
 	
 	val height get() = bottom - top
 	
+	val longestSide get() = max(width, height)
+	val shortestSide get() = min(width, height)
+	
+	val center get() = Position((left + right) / 2, (top + bottom) / 2)
+	
+	val distance get() = sqrt(pow(width) + pow(height))
 	
 	fun extendTo(other: Rect): Rect =
 		Rect(min(left, other.left), min(top, other.top), max(right, other.right), max(bottom, other.bottom))
@@ -33,6 +41,6 @@ data class Rect(val left: Float, val top: Float, val right: Float, val bottom: F
 	operator fun contains(inner: Rect): Boolean =
 		inner.left >= left && inner.top >= top && inner.right <= right && inner.bottom <= bottom
 	
-	@Suppress("nothing_to_inline")
+	@Suppress("NOTHING_TO_INLINE")
 	inline operator fun contains(inner: Position): Boolean = intersects(inner)
 }

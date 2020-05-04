@@ -35,6 +35,8 @@ fun UiLibraryTransformer() =
 								putValueArgument(1, irConst(0L)) // root id: 0
 							}
 							
+							"nextId" -> Unit // any calls to this is inlined
+							
 							else -> error("unexpected function ${declaration.name} in bridge.kt")
 						}
 					}
