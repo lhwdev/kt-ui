@@ -24,7 +24,7 @@ import kotlin.test.Test
 
 //@Suppress("MemberVisibilityCanBePrivate")
 
-const val DEST = "D:\\LHW\\asm\\app\\new\\com.kt.core\\compiler-test-template\\dest"
+const val DEST = "D:\\LHW\\asm\\app\\new\\com.asmx.core\\compiler-test-template\\dest"
 
 
 class Test {
@@ -67,24 +67,34 @@ class Test {
 			classpathAsList = mutableListOf<File>().apply {
 				val hostClasspaths = getHostClasspaths()
 				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib.jar",
-					Regex("(kotlin-stdlib|kotlin-runtime)(-[0-9]+\\.[0-9]+\\.[0-9]+)([-0-9a-zA-Z]+)?\\.jar"))!!)
-				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib-jdk*.jar",
-					Regex("kotlin-stdlib-jdk[0-9]+(-[0-9]+\\.[0-9]+\\.[0-9]+)([-0-9a-zA-Z]+)?\\.jar"))!!)
-				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib-common.jar",
-					Regex("kotlin-stdlib-common(-[0-9]+\\.[0-9]+\\.[0-9]+)([-0-9a-zA-Z]+)?\\.jar"))!!)
+//					Regex("(kotlin-stdlib|kotlin-runtime)(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
+					Regex("kotlin-stdlib-1.4-M1.jar")
+				)!!)
+				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib-jdk.jar",
+//					Regex("kotlin-stdlib-jdk[0-9]+(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
+					Regex("kotlin-stdlib-jdk8-1.4-M1.jar")
+				)!!)
+				add(File("C:\\Users\\LHW\\AppData\\Local\\Android\\Sdk\\platforms\\android-29\\android.jar"))
+				
 			}
 			
 			noStdlib = true
 			pluginClasspaths = arrayOf(getResourcesPath())
 			destination = DEST
 			includeRuntime = true
-			internalArguments = listOf(LanguageFeatureSetting(LanguageFeature.NonParenthesizedAnnotationsOnFunctionalTypes, LanguageFeature.State.ENABLED))
+			multiPlatform = true
+			useExperimental = arrayOf("kotlin.RequiresOptIn", "kotlin.contracts.ExperimentalContracts", "kotlin.ExperimentalUnsignedTypes")
+			internalArguments = listOf(LanguageFeatureSetting(LanguageFeature.InlineClasses, LanguageFeature.State.ENABLED))
+//			internalArguments = listOf(LanguageFeatureSetting(LanguageFeature.NonParenthesizedAnnotationsOnFunctionalTypes, LanguageFeature.State.ENABLED)) // not needed in Kotlin 1.4
 			
 			freeArgs = listOf(
 //				"""
 //				"D:/LHW/asm/app/new/com.kt.core/compiler-test-template/source"
 //			""".trimIndent(),
-				*File("D:\\LHW\\asm\\app\\new\\com.kt.core\\ui\\test\\src\\main\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray()
+				
+				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\test\\src\\main\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+//				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\commonMain\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+//				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\androidMain\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray()
 			)
 		})
 		
@@ -154,16 +164,22 @@ class Test {
 	}
 }
 
-private fun File.listFilesRecursive(): List<File> {
+private fun File.listKtFilesRecursive(): List<File> {
 	val list = mutableListOf<File>()
-	listFiles()!!.forEach { if(it.isFile) list += it else list += it.listFilesRecursive() }
+	listFiles()!!.forEach {
+		if(it.isFile) {
+			if(it.extension == "kt")
+				list += it
+		} else list += it.listKtFilesRecursive()
+	}
 	return list
 }
 
 
-fun LanguageFeatureSetting(languageFeature: LanguageFeature, state: LanguageFeature.State) = ManualLanguageFeatureSetting(languageFeature, state, "-XXLanguage:${when(state) {
-	LanguageFeature.State.ENABLED -> '+'
-	LanguageFeature.State.DISABLED -> '-'
-	else -> error("unsupported state: $state")
-}
-}$languageFeature")
+fun LanguageFeatureSetting(languageFeature: LanguageFeature, state: LanguageFeature.State) =
+	ManualLanguageFeatureSetting(languageFeature, state, "-XXLanguage:${when(state) {
+		LanguageFeature.State.ENABLED -> '+'
+		LanguageFeature.State.DISABLED -> '-'
+		else -> error("unsupported state: $state")
+	}
+	}$languageFeature")

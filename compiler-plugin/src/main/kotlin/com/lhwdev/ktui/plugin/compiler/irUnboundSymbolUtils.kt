@@ -10,6 +10,7 @@ import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.classifierOrNull
 import org.jetbrains.kotlin.ir.util.DeclarationStubGenerator
 import org.jetbrains.kotlin.ir.util.IrProvider
+import org.jetbrains.kotlin.ir.util.getDeclaration
 import org.jetbrains.kotlin.ir.util.referenceMember
 
 
@@ -26,8 +27,27 @@ fun initUnboundSymbolUtils(context: IrPluginContext) {
 	context.moduleDescriptor.allDependencyModules.filter { it.getCapability(KlibModuleOrigin.CAPABILITY) != null }.forEach {
 		deserializer.deserializeIrModuleHeader(it)
 	}
-	
 	providers = listOf(deserializer, stubGenerator)
+	stubGenerator.setIrProviders(providers)
+}
+
+fun bindAll() {
+	var unbound: Set<IrSymbol>
+	val visited = mutableSetOf<IrSymbol>()
+	do {
+		unbound = pluginContext.symbolTable.allUnbound()
+		
+		for(symbol in unbound) {
+			if(visited.contains(symbol))
+				continue
+			
+			// Symbol could get bound as a side effect of deserializing other symbols.
+			if(!symbol.isBound)
+				providers.getDeclaration(symbol)
+			
+			if(!symbol.isBound) visited.add(symbol)
+		}
+	} while((unbound - visited).isNotEmpty())
 }
 
 

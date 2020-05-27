@@ -2,11 +2,8 @@ package com.lhwdev.ktui.plugin.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
-import org.jetbrains.kotlin.ir.types.defaultType
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
+import kotlin.system.measureTimeMillis
 import kotlin.time.ExperimentalTime
 
 
@@ -48,28 +45,27 @@ class UiIrGenerationExtension : IrGenerationExtension {
 		
 		val target = moduleFragment
 		
-		UiIrContext(pluginContext, moduleFragment, target).transformations {
+		UiIrContext(pluginContext, moduleFragment, target).transformations("main") {
 			initUnboundSymbolUtils(pluginContext)
 			
-			log4(pluginContext.symbolTable.referenceClass(pluginContext.moduleDescriptor.resolveTopLevelClass(FqName("kotlin.Function0"), NoLookupLocation.FROM_BACKEND)!!).tryBind().defaultType.isFunction())
-//			measureTime {
-//				pluginContext.symbolTable.allUnbound().forEach {
-//					it.getBoundIfPossible()
-//				}
-//			}.inMilliseconds.withLog()
+			measureTimeMillis {
+				bindAll()
+			}.withLog { "bind took $it" }
+
+//			target.logDumpColored()
+//			target.logSrcColored(debug = true)
 
 //			log2(target.dumpSrc())
 //		val target = moduleFragment.files.withLog { it.joinToString { files -> files.name } }.find { it.name == "Main.kt" }!!
-			+WidgetDeclarationTransformer()
-//			target.logDumpColored()
-//			log(target.dumpSrc())
-			+WidgetTypeTransformer()
+			+WidgetMarkerTransformer()
+			+WidgetFunctionParamTransformer()
+			+WidgetFunctionBodyTransformer()
+			target.logSrcColored(debug = true)
 			+WidgetCallTransformer()
-			+UiLibraryTransformer()
+//			+UiLibraryTransformer()
+			log("\nDUMP OVERALL TRANSFORMED IR TREE")
+//			target.logDumpColored()
+			target.logSrcColored(debug = true)
 		}
-		
-		log("\nDUMP OVERALL TRANSFORMED IR TREE")
-		log(target.dumpColored())
-		log(target.dumpSrc())
 	}
 }

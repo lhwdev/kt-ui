@@ -1,11 +1,13 @@
 package com.lhwdev.ktui.graphics
 
+import com.lhwdev.ktui.Immutable
 import com.lhwdev.ktui.utils.lerp
 import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sqrt
 
 
+@Immutable
 data class Position(val x: Float, val y: Float) {
 	companion object {
 		val zero = Position(0f, 0f)
@@ -27,7 +29,7 @@ data class Position(val x: Float, val y: Float) {
 	fun scale(scaleX: Float, scaleY: Float = scaleX): Position = Position(x * scaleX, y * scaleY)
 	
 	
-	override fun toString() = "Position(${x.toStringAsFixed(1)}, ${y.toStringAsFixed(1)})"
+	override fun toString() = "(${x.toStringAsFixed(1)}, ${y.toStringAsFixed(1)})"
 }
 
 

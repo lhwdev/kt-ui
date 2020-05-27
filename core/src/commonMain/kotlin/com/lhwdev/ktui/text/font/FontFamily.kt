@@ -1,10 +1,13 @@
 package com.lhwdev.ktui.text.font
 
+import com.lhwdev.ktui.Immutable
+
 
 /**
  * Defines a font family. It can be constructed via a generic font family such as serif, sans-serif
  * (i.e. FontFamily("sans-serif"). It can also be constructed by a set of custom fonts.
  */
+@Immutable
 sealed class FontFamily constructor(val canLoadSynchronously: Boolean) {
 	companion object {
 		/**

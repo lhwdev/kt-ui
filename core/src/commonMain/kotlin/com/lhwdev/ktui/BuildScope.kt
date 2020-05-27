@@ -1,16 +1,16 @@
 package com.lhwdev.ktui
 
-
-typealias ElementCreator<T> = () -> Element<T>
+import com.lhwdev.ktui.elements.WidgetElement
 
 
 val EMPTY = Any()
 
 @Suppress("NOTHING_TO_INLINE")
-inline fun internalKeyOf(attrs: Array<Any?>, keyIndex: Int) = if(keyIndex == -1) EMPTY else attrs[keyIndex]
+inline fun internalKeyOf(attrs: Array<Any?>, keyIndex: Int) =
+	if(keyIndex == -1) EMPTY else attrs[keyIndex]
 
 fun internalResolveChanges(attrsBefore: Array<Any?>, attrs: Array<Any?>, stateInt: Int, isDirty: Boolean): Int {
-	inline fun Int.stateAt(index: Int) = (this shr (index * 2)) and 0x3
+	fun Int.stateAt(index: Int) = (this shr (index * 2)) and 0x3
 	
 	var changes = 0
 	
@@ -53,6 +53,9 @@ inline fun arrayEquals(a: Any, b: Any) = when {
 	else -> false
 }
 
+
+// Widget implementation v3
+
 abstract class BuildScope {
 	abstract val currentElement: Element<*>
 	
@@ -65,15 +68,15 @@ abstract class BuildScope {
 	
 	abstract fun <T> commitStartWithElementOnCreated(element: Element<T>, state: T)
 	
-	// TODO: Widget with return value is not skippable
-	// entry point from the plugin
-	abstract fun end(returnValue: Any?)
-	
 	// entry point from the plugin
 	abstract fun end()
 	
+	
 	// entry point from the plugin
-	abstract fun endSkip(): Any?
+	abstract fun startExpr(id: Long)
+	
+	// entry point from the plugin
+	abstract fun endExpr()
 	
 	
 	/// functions only available when currentElement is WidgetElements, or they will throw error
@@ -84,10 +87,38 @@ abstract class BuildScope {
 }
 
 
-inline fun <T> BuildScope.startWithElement(id: Int, state: T, key: Any? = EMPTY, elementCreator: ElementCreator<T>) {
+inline fun <S, E : Element<S>> BuildScope.startWithElement(id: Int, state: S, key: Any? = EMPTY, elementCreator: () -> E): E {
 	@Suppress("UNCHECKED_CAST")
-	val last = startTransactWithElement(id, key) as Element<T>?
+	val last = startTransactWithElement(id, key) as E?
+		?: return elementCreator().also { commitStartWithElementOnCreated(it, state) }
 	
-	if(last == null) commitStartWithElementOnCreated(elementCreator(), state)
-	else commitStartWithElement(last, state, stateChanged(last.state, state))
+	commitStartWithElement(last, state, stateChanged(last.state, state))
+	return last
 }
+
+inline fun BuildScope.startWithElement(id: Int, key: Any? = EMPTY, elementCreator: () -> Element<Unit>) {
+	startWithElement(id, Unit, key, elementCreator)
+}
+
+inline fun <S, E : Element<S>> BuildScope.element(id: Int, state: S, key: Any? = EMPTY, elementCreator: () -> E, block: E.() -> Unit) {
+	startWithElement(id, state, key, elementCreator).block()
+	end()
+}
+
+inline fun <E : Element<Unit>> BuildScope.element(id: Int, key: Any? = EMPTY, elementCreator: () -> E, block: E.() -> Unit) =
+	element(id, Unit, key, elementCreator, block)
+
+inline fun BuildScope.widget(id: Int, key: Any? = EMPTY, block: WidgetElement.() -> Unit) =
+	widgetElement(id, key, ::WidgetElement, block)
+
+inline fun <E : Element<Array<Any?>>> BuildScope.widgetElement(id: Int, key: Any? = EMPTY, elementCreator: () -> E, block: E.() -> Unit) =
+	element(id, sInternalEmptyAttrs, key, elementCreator, block)
+
+inline fun <S, E : Element<S>> BuildScope.leafElement(id: Int, state: S, key: Any? = EMPTY, elementCreator: () -> E): E {
+	val element = startWithElement(id, state, key, elementCreator)
+	end()
+	return element
+}
+
+inline fun <E : Element<Unit>> BuildScope.leafElement(id: Int, key: Any? = EMPTY, elementCreator: () -> E) =
+	leafElement(id, Unit, key, elementCreator)

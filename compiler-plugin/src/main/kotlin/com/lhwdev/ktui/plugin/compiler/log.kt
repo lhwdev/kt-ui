@@ -71,15 +71,14 @@ interface ColorLogStream : LogStream {
 
 // TODO: close
 
-data class LogConfig(val stackTrace: Array<StackTraceElement>? = null, val indents: Int? = null, val mute: Boolean = false) {
+data class LogConfig(val stackTrace: Array<StackTraceElement>? = null, val indents: Int? = null, val mute: Boolean = false, val isIndentFixed: Boolean = false) {
 	fun merge(other: LogConfig) =
-		LogConfig(stackTrace = other.stackTrace
-			?: stackTrace, indents = other.indents
-			?: indents, mute = mute || other.mute)
-	
-	
-	override fun toString() =
-		"LogConfig(stackTrace = ${stackTrace?.let { it.sliceArray(0 until min(it.size, 4)).contentToString() }}, indents = $indents, mute = $mute)"
+		LogConfig(
+			stackTrace = other.stackTrace ?: stackTrace,
+			indents = other.indents ?: indents,
+			mute = other.mute || mute,
+			isIndentFixed = other.isIndentFixed || isIndentFixed
+		)
 }
 
 object LogConfigLocal : ThreadLocal<MutableList<LogConfig>>() {
@@ -147,6 +146,13 @@ val logConfig get() = LogConfigLocal.top()
 inline fun <R> muteLog(block: () -> R) =
 	LogConfigLocal(LogConfig(mute = true), block)
 
+inline fun <R> fixIndents(block: () -> R) =
+	LogConfigLocal(LogConfig(isIndentFixed = true), block)
+
+fun logln() {
+	log("\n")
+}
+
 fun log(content: Any?) {
 	logInternalWithoutNewline("$content\n")
 }
@@ -187,6 +193,10 @@ fun logStream(color: String) = object : LogStream {
 	}
 }
 
+fun logIndent(block: () -> Unit) {
+	block()
+}
+
 inline fun <T> T.withLog(): T {
 	log(this)
 	return this
@@ -210,35 +220,44 @@ fun logInternalWithoutNewline(content: String, color: String = ConsoleColors.RES
 		return
 	}
 	
-	val currentStackTrace = Throwable().stackTrace.let { it.sliceArray(it.indexOfLast { item -> item.fileName == "log.kt" } + 1 until it.size) }
-	val currentStackTraceLength = currentStackTrace.size
+	val lastConfig = logConfig
+	val isIndentFixed = lastConfig.isIndentFixed
+	val currentStackTraceLength: Int
+	val indents: Int
 	
-	var compareResult: CompareStackTraceResult
-	loop@ while(true) {
-		compareResult = compareStackTrace(logConfig.stackTrace, currentStackTrace)
+	if(isIndentFixed) {
+		currentStackTraceLength = lastConfig.stackTrace!!.size
+		indents = lastConfig.indents!!
+	} else {
+		val currentStackTrace = Throwable().stackTrace.let { it.sliceArray(it.indexOfLast { item -> item.fileName == "log.kt" } + 1 until it.size) }
+		currentStackTraceLength = currentStackTrace.size
 		
-		when(compareResult) {
-			CompareStackTraceResult.same -> LogConfigLocal.pop()
-			CompareStackTraceResult.descendant -> break@loop
-			CompareStackTraceResult.ancestor, CompareStackTraceResult.different -> LogConfigLocal.pop()
+		var compareResult: CompareStackTraceResult
+		loop@ while(true) {
+			compareResult = compareStackTrace(logConfig.stackTrace, currentStackTrace)
+			
+			when(compareResult) {
+				CompareStackTraceResult.same -> LogConfigLocal.pop()
+				CompareStackTraceResult.descendant -> break@loop
+				CompareStackTraceResult.ancestor, CompareStackTraceResult.different -> LogConfigLocal.pop()
+			}
 		}
+		
+		val config = logConfig
+		if(config.mute) return
+		
+		indents = if(doIndentAutomatic) {
+			config.indents!! + 1
+		} else 0
+		val newConfig = LogConfig(stackTrace = currentStackTrace, indents = indents)
+		LogConfigLocal.push(newConfig)
 	}
-	
-	val config = logConfig
-	if(config.mute) return
-	
-	val indents = if(doIndentAutomatic) {
-		config.indents!! + 1
-	} else 0
-	val newConfig = LogConfig(stackTrace = currentStackTrace, indents = indents)
-	LogConfigLocal.push(newConfig)
-	
 	val text = content.split('\n')
 	
 	val header = "${ConsoleColors.WHITE}${sDateFormat.format(Date())} | $color${currentStackTraceLength.toStringFilling(3)}${ConsoleColors.WHITE} | $color$prefix" + (0 until indents).joinToString(separator = "") { "  " }
 //	val header = headerPrefix
 	val builder = StringBuilder()
-	builder.append(if(text[0].isEmpty()) "" else if(isLastNewline) header + text[0] + suffix else color + prefix + text[0] + suffix)
+	builder.append(/*if(text[0].isEmpty()) "" else*/ if(isLastNewline) header + text[0] + suffix else color + prefix + text[0] + suffix)
 	val size = text.size
 	builder.append('\n')
 	for(i in 1 until size)

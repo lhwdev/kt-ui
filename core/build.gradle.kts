@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
+
 plugins {
 	kotlin("multiplatform")
 	
@@ -6,9 +9,16 @@ plugins {
 }
 
 
-evaluationDependsOn(":compiler-plugin")
+//evaluationDependsOn(":compiler-plugin")
+
+
+tasks.withType<KotlinCompile> {
+	kotlinOptions {
+//		useIR = true
+	}
+}
 
 
 dependencies {
-	kotlinCompilerPluginClasspath(project(":compiler-plugin"))
+//	kotlinCompilerPluginClasspath(project(":compiler-plugin"))
 }

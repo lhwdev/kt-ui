@@ -161,7 +161,7 @@ class PaintBuilder() {
 	var shader: Shader? = null
 	
 	
-	constructor(paint: Paint) {
+	constructor(paint: Paint) : this() {
 		color = paint.color
 		stroke = paint.stroke
 		doFill = paint.doFill
@@ -334,7 +334,7 @@ class StrokeBuilder() {
 	var strokeMiterLimit: Float = 4.0f
 	
 	
-	constructor(stroke: Stroke) {
+	constructor(stroke: Stroke) : this() {
 		width = stroke.width
 		cap = stroke.cap
 		join = stroke.join

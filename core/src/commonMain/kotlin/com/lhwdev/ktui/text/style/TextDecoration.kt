@@ -1,9 +1,12 @@
 package com.lhwdev.ktui.text.style
 
+import com.lhwdev.ktui.Immutable
+
 
 /**
  * Defines a horizontal line to be drawn on the text.
  */
+@Immutable
 data class TextDecoration internal constructor(val mask: Int) {
 	companion object {
 		val none: TextDecoration = TextDecoration(0x0)
@@ -36,9 +39,11 @@ data class TextDecoration internal constructor(val mask: Int) {
 	 *
 	 * @param other The [TextDecoration] to be checked.
 	 */
-	fun contains(other: TextDecoration): Boolean {
+	operator fun contains(other: TextDecoration): Boolean {
 		return (mask or other.mask) == mask
 	}
+	
+	operator fun plus(other: TextDecoration) = combine(listOf(this, other))
 	
 	override fun toString(): String {
 		if(mask == 0) {

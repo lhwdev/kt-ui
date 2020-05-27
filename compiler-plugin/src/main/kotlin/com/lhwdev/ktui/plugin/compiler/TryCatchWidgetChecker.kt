@@ -32,7 +32,7 @@ open class TryCatchWidgetChecker : CallChecker, StorageComponentContainerContrib
 		val call = resolvedCall.call.callElement
 		val shouldBeTag =
 			WidgetAnnotationChecker.get(call.project).shouldInvokeAsTag(trace, resolvedCall)
-		if(shouldBeTag == WidgetKind.widget) {
+		if(shouldBeTag) {
 			var walker: PsiElement? = call
 			while(walker != null) {
 				val parent = walker.parent

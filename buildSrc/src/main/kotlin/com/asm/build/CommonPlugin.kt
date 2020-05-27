@@ -27,7 +27,6 @@ private fun Project.configureKotlin(): Unit = kotlinProjectExtension {
 				useExperimentalAnnotation("kotlin.RequiresOptIn")
 				useExperimentalAnnotation("kotlin.contracts.ExperimentalContracts")
 				useExperimentalAnnotation("kotlin.ExperimentalUnsignedTypes")
-				enableLanguageFeature("NonParenthesizedAnnotationsOnFunctionalTypes")
 				enableLanguageFeature("InlineClasses")
 			}
 		}

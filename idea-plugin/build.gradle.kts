@@ -36,6 +36,17 @@ tasks {
 	named<ShadowJar>("shadowJar") {
 		configurations = listOf(project.configurations.runtimeClasspath.get())
 	}
+	
+	patchPluginXml {
+//		sinceBuild("193.5233")
+//		untilBuild("202.*")
+		
+		changeNotes("""
+    	<ul>
+			<li>Added </li>
+		</ul>
+	 """)
+	}
 
 //	named<Jar>("jar") {
 //		finalizedBy("shadowJar")
@@ -48,12 +59,4 @@ tasks {
 	compileTestKotlin {
 		kotlinOptions.jvmTarget = "1.8"
 	}
-}
-
-tasks.getByName<org.jetbrains.intellij.tasks.PatchPluginXmlTask>("patchPluginXml") {
-	changeNotes("""
-    	<ul>
-			<li>Added </li>
-		</ul>
-	 """)
 }

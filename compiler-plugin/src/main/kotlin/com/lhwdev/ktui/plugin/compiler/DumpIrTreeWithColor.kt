@@ -178,17 +178,18 @@ fun IrElement.dumpColored(normalizeNames: Boolean = false): String =
 		"(Full dump is not available: ${e.message})\n" + render()
 	}
 
-fun IrElement.logDumpColored(baseColor: String = ConsoleColors.RESET, normalizeNames: Boolean = false) {
-	try {
-		accept(DumpIrTreeVisitor(object : Appendable {
-			override fun append(csq: CharSequence) = append(csq, 0, csq.length)
-			
-			override fun append(csq: CharSequence, start: Int, end: Int): Appendable {
+fun IrElement.logDumpColored(baseColor: String = ConsoleColors.RESET, normalizeNames: Boolean = false) =
+	fixIndents {
+		try {
+			accept(DumpIrTreeVisitor(object : Appendable {
+				override fun append(csq: CharSequence) = append(csq, 0, csq.length)
+				
+				override fun append(csq: CharSequence, start: Int, end: Int): Appendable {
 //				print("O${end - start}")
-				csq.substring(start, end)
-					.let { if(baseColor != ConsoleColors.RESET) it.replace(ConsoleColors.RESET, baseColor) else it }
-					.let { logInternalWithoutNewline(it, color = baseColor) }
-				return this
+					csq.substring(start, end)
+						.let { if(baseColor != ConsoleColors.RESET) it.replace(ConsoleColors.RESET, baseColor) else it }
+						.let { logInternalWithoutNewline(it, color = baseColor) }
+					return this
 			}
 			
 			override fun append(c: Char) = append("$c")
@@ -991,8 +992,8 @@ private class RenderIrElementVisitor(private val normalizeNames: Boolean = false
 			"data".takeIf { isData },
 			"external".takeIf { isExternal },
 			"inline".takeIf { isInline },
-			"expect".takeIf { isExpect }
-//			"fun".takeIf { isFun } // kotlin 1.4.0-eap-10
+			"expect".takeIf { isExpect },
+			"fun".takeIf { isFun }
 		)
 	
 	override fun visitVariable(declaration: IrVariable, data: Nothing?): String =
@@ -1166,16 +1167,16 @@ private class RenderIrElementVisitor(private val normalizeNames: Boolean = false
 		"${sIdentifier}throw$sReset ${sProperty}type=$sReset${expression.type.renderReadable()}"
 	
 	override fun visitFunctionReference(expression: IrFunctionReference, data: Nothing?): String =
-		"${sIdentifier}function_reference$sReset '${expression.symbol.renderReference()}' ${sProperty}type=$sReset${expression.type.renderReadable()} ${sProperty}origin=$sReset${expression.origin}"
-//		"${sIdentifier}function_reference$sReset '${expression.symbol.renderReference()}' " + // kotlin 1.4.0-eap-10
-//			"${sProperty}type=$sReset${expression.type.renderReadable()} ${sProperty}origin=$sReset${expression.origin} " +
-//			"${sProperty}reflectionTarget=$sReset${renderReflectionTarget(expression)}"
-//
-//	private fun renderReflectionTarget(expression: IrFunctionReference) =
-//		if(expression.symbol == expression.reflectionTarget)
-//			"<same>"
-//		else
-//			expression.reflectionTarget?.renderReference()
+//		"${sIdentifier}function_reference$sReset '${expression.symbol.renderReference()}' ${sProperty}type=$sReset${expression.type.renderReadable()} ${sProperty}origin=$sReset${expression.origin}"
+		"${sIdentifier}function_reference$sReset '${expression.symbol.renderReference()}' " +
+			"${sProperty}type=$sReset${expression.type.renderReadable()} ${sProperty}origin=$sReset${expression.origin} " +
+			"${sProperty}reflectionTarget=$sReset${renderReflectionTarget(expression)}"
+	
+	private fun renderReflectionTarget(expression: IrFunctionReference) =
+		if(expression.symbol == expression.reflectionTarget)
+			"<same>"
+		else
+			expression.reflectionTarget?.renderReference()
 	
 	override fun visitPropertyReference(expression: IrPropertyReference, data: Nothing?): String =
 		buildTrimEnd {

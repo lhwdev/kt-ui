@@ -3,8 +3,10 @@ package com.lhwdev.ktui
 import com.lhwdev.ktui.utils.lerp
 
 
+@Immutable
 inline class Color(private val value: UInt) {
 	companion object {
+		val transparent = Color(0x00000000u)
 		val black = Color(0xff000000u)
 	}
 	

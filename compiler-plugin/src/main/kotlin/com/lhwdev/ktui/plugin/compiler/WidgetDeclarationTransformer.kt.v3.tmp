@@ -1,0 +1,270 @@
+package com.lhwdev.ktui.plugin.compiler
+
+import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.builders.*
+import org.jetbrains.kotlin.ir.builders.declarations.addValueParameter
+import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
+import org.jetbrains.kotlin.ir.declarations.IrValueDeclaration
+import org.jetbrains.kotlin.ir.declarations.IrValueParameter
+import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionExpressionImpl
+import org.jetbrains.kotlin.ir.symbols.IrFunctionSymbol
+import org.jetbrains.kotlin.ir.types.isUnit
+import org.jetbrains.kotlin.ir.types.toKotlinType
+import org.jetbrains.kotlin.ir.util.patchDeclarationParents
+import org.jetbrains.kotlin.ir.util.statements
+import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
+
+
+val transformedFunctions = mutableMapOf<Any, WidgetTransformationInfo>()
+
+fun getTransformedFunctionFor(symbol: IrFunctionSymbol) =
+//	if(symbol.descriptor.isFunctionInvoke())
+//		context.symbolTable.referenceSimpleFunction(
+//			context.builtIns.getFunction(symbol.descriptor.valueParameters.size)
+//				.unsubstitutedMemberScope
+//				.findFirstFunction("invoke") { it.valueParameters.size == symbol.descriptor.valueParameters.size }
+//		).getBoundIfPossible().owner
+//	else
+	transformedFunctions[symbol.tryBind().owner]
+
+
+abstract class WidgetTransformationInfo(val functionSymbol: IrFunctionSymbol, val kind: WidgetTransformationKind, val changes: IrValueDeclaration?) {
+	override fun toString() =
+		"WidgetTransformationInfo for ${functionSymbol.descriptor.name}($kind)"
+}
+
+class WidgetDeclarationTransformationInfo(val function: IrFunction, kind: WidgetTransformationKind, changes: IrValueDeclaration?)
+	: WidgetTransformationInfo(function.symbol, kind, changes)
+
+
+@Suppress("MemberVisibilityCanBePrivate")
+class WidgetDeclarationTransformer : UiTransformerBase() {
+	override fun lower() {
+		super.lower()
+		target.patchDeclarationParents()
+	}
+//	private val declarationStack = mutableListOf<IrSymbolOwner>()
+
+//	override fun visitDeclaration(declaration: IrDeclaration): IrStatement {
+//		if(declaration !is IrSymbolOwner) return super.visitDeclaration(declaration)
+//		try {
+//			declarationStack.push(declaration)
+//			return super.visitDeclaration(declaration)
+//		} finally {
+//			declarationStack.pop()
+//		}
+//	}
+
+//	fun nearestScope(): IrValueParameter {
+//		declarationStack.reversed().forEach {
+//			if(it is IrFunction) {
+//				val param = it.valueParameters.lastOrNull()
+//				if(param != null && param.isScopeParam()) {
+//					return param
+//				}
+//			}
+//		}
+//
+//		error("couldn't find BuildScope")
+//	}
+	
+	override fun visitFunction(declaration: IrFunction) =
+		super.visitFunction(declaration.widgetTransformationKind?.let {
+			val info = declaration.withWidgetCall(it)
+			transformedFunctions[declaration] = info
+			info.function
+		} ?: declaration)
+	
+	override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression { // to transform lambda arguments
+		if(expression.symbol.descriptor.anyWidgetKind == null) return super.visitFunctionAccess(expression)
+		
+		val function = expression.symbol.tryBind().owner
+		
+		for(i in 0 until expression.valueArgumentsCount) {
+			val parameter = function.valueParameters[i]
+			val argument = expression.getValueArgument(parameter.index)
+			
+			if(argument is IrFunctionExpression)
+				expression.putValueArgument(parameter.index, transformWidgetLambdaCallIfNecessary(parameter, argument))
+		}
+		return super.visitFunctionAccess(expression)
+	}
+	
+	override fun visitFunctionReference(expression: IrFunctionReference): IrExpression {
+		if(expression.symbol.descriptor.anyWidgetKind != null) error("Referencing the widget function is not supported")
+		return super.visitFunctionReference(expression)
+	}
+	
+	
+	/**
+	 *
+	 * - skippable(= no return value)
+	 *   ```kotlin
+	 *   @Widget
+	 *   fun Hello(abc: Int): Unit = Main(abc)
+	 *   ```
+	 *   into
+	 *   ```
+	 *   @Widget
+	 *   fun Hello(abc: Int, $buildScope: BuildScope, $idState: Long): Float {
+	 *       val changes = $buildScope.start(idState = $idState, attrs = arrayOf(abc))
+	 *       if(changes != 0)
+	 *           Main(abc, scope, 123 or ((changes shr 0 and 0x1 or 0x2) shr 32) // ... 0 0 1 (0 / changed)
+	 *       $buildScope.end()
+	 *   }
+	 *   ```
+	 *
+	 * - non-skippable(= has return value)
+	 *   ```kotlin
+	 *   @Widget
+	 *   fun Hi(wow: Int) = 12345
+	 *   ```
+	 *   into
+	 *   ```
+	 *   @Widget
+	 *   fun Hi(wow: Int, $buildScope: BuildScope, $id: Int): Int {
+	 *       $buildScope.startExpr($id)
+	 *       val returnValue = run { 12345 }
+	 *       $buildScope.end()
+	 *   }
+	 * ```
+	 */
+	fun IrFunction.withWidgetCall(kind: WidgetTransformationKind): WidgetDeclarationTransformationInfo {
+		val fn = copyLight()
+//		val fn = this
+		val builder = irBuilder(fn.symbol)
+		
+		log("IrFunction.withWidgetCall($kind): $name")
+		
+		// #1. parameters
+//		uiTrace.record(UiWritableSlices.IS_WIDGET_CALL, )
+		val originalParameters = fn.valueParameters // >> (abc: Int,
+		
+		val scopeParameter = // >> $buildScope: BuildScope,
+			fn.addValueParameter(WIDGET_PARAMETER_SCOPE, UiDeclarations.buildScope.defaultType.toIrType())
+		
+		var changesInfo: IrValueDeclaration? = null
+		
+		
+		fun IrBuilderWithScope.mapReturns(statement: IrStatement) =
+			statement.transform(object : IrElementTransformerVoid() {
+				override fun visitReturn(expression: IrReturn) =
+					if(expression.returnTargetSymbol == symbol)
+						irReturn(expression.value)
+					else expression
+			}, null)
+		
+		
+		// @Widget (with Unit return type)
+		when(kind) {
+			WidgetTransformationKind.skippableWidget -> @Suppress("SuspiciousCollectionReassignment") {
+				val idStateParameter = fn.addValueParameter(WIDGET_PARAMETER_ID_STATE, context.irBuiltIns.longType) // >> $idState: Int)
+				
+				// #2. body
+				
+				var attrs = originalParameters.map { builder.irGet(it) }
+				fn.dispatchReceiverParameter?.let { attrs += builder.irGet(it) }
+				fn.extensionReceiverParameter?.let { attrs += builder.irGet(it) }
+				
+				val body = body
+				
+				fn.body = builder.irBlockBody { // >> {
+					val changes = irTemporary( // val changes =
+						irCall(UiDeclarations.BuildScope.start).apply { // >> $buildScope.start(
+							dispatchReceiver = irGet(scopeParameter)
+							
+							putValueArgument(kBuildScope.start.idState, irGet(idStateParameter)) // >> idState = $idState,
+							putValueArgument(kBuildScope.start.attrs, irArrayOf(context.irBuiltIns.anyNType, attrs)) // >> attrs = arrayOf(abc),
+							
+							// TODO: >> keyIndex = ???
+							putValueArgument(kBuildScope.start.keyIndex, irConst(-1)) // >> keyIndex = -1)
+							
+						},
+						"changes"
+					)
+					changesInfo = changes
+					
+					val condition = irNotEquals(irGet(changes), irConst(0))
+					
+					// currently all skippable widgets have Unit return type
+					assert(returnType.isUnit())
+					
+					+irIfThen( // >> if(changes != 0) {
+						type = returnType,
+						condition = condition,
+						thenPart = irRun(type = returnType) { // >> run { Main(...) }
+							body!!.statements.forEach { +mapReturns(it) }
+						},
+						origin = IrStatementOrigin.IF
+					) // >> }
+					
+					+irCall(UiDeclarations.BuildScope.end).apply { // $buildScope.end() }
+						dispatchReceiver = irGet(scopeParameter)
+					}
+					
+				}
+			}
+			
+			WidgetTransformationKind.nonSkippableWidget -> { // >> $id: Long): ...
+				val idParameter = fn.addValueParameter(WIDGET_PARAMETER_ID, context.irBuiltIns.longType) // compatibility
+				val body = body
+				
+				assert(!returnType.isUnit())
+				
+				fn.body = builder.irBlockBody { // >> {
+					+irCall(UiDeclarations.BuildScope.startExpr).apply { // >> $buildScope.startExpr(
+						dispatchReceiver = irGet(scopeParameter)
+						
+						// >> $id.toInt())
+						putValueArgument(kBuildScope.startExpr.id, irGet(idParameter))
+					}
+					
+					val returnValue = irTemporary( // >> val returnValue =
+						builder.irRun(type = returnType) { // >> run {
+							body!!.statements.forEach { +mapReturns(it) } // >> ... }
+						}, "returnValue"
+					)
+					
+					+irCall(UiDeclarations.BuildScope.endExpr).apply { // >> $buildScope.endExpr() }
+						dispatchReceiver = irGet(scopeParameter)
+					}
+					
+					+irReturn(irGet(returnValue))
+				}
+			}
+			
+			WidgetTransformationKind.inlineWidget -> { // >> $changes: Long)
+				changesInfo = fn.addValueParameter(WIDGET_PARAMETER_CHANGES, context.irBuiltIns.longType) // compatibility
+				
+				// #2. body
+				
+				// mapping returns is not needed
+				// skipping of a inline widget depends on caller, not skipping individually
+				// so, no need to transform body
+				
+				// but packing into changes parameter and unpacking it needs double operations than
+				// just putting manually: needs some refactoring
+			}
+			
+			WidgetTransformationKind.widgetUtil -> { // >> )
+				// @WidgetUtil: don't touch anymore; $buildScope is added in advance
+			}
+		}
+		
+		return WidgetDeclarationTransformationInfo(fn, kind, changesInfo)
+	}
+	
+	
+	fun transformWidgetLambdaCallIfNecessary(valueParameter: IrValueParameter, valueArgument: IrFunctionExpression): IrExpression {
+		val kind = valueParameter.type.tryBind().toKotlinType().getWidgetTransformationKind(true) // inline widget transformation -> lambda
+		
+		return if(kind != null) {
+			val info = valueArgument.function.withWidgetCall(kind.toLambdaKind())
+			transformedFunctions[valueArgument.function] = info
+			val function = info.function as IrSimpleFunction
+			IrFunctionExpressionImpl(valueArgument.startOffset, valueArgument.endOffset, function.toFunctionalType().toIrType(), function, valueArgument.origin)
+		} else valueArgument
+	}
+}

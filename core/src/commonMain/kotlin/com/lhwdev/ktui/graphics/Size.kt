@@ -1,6 +1,9 @@
 package com.lhwdev.ktui.graphics
 
+import com.lhwdev.ktui.Immutable
 
+
+@Immutable
 data class Size(val width: Float, val height: Float)
 
 

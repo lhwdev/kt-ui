@@ -1,31 +1,42 @@
 package com.lhwdev.ktui.text.font
 
-
+import com.lhwdev.ktui.Immutable
 import com.lhwdev.ktui.utils.lerp
 
+
+@Immutable
 data class FontWeight(internal val weight: Int) : Comparable<FontWeight> {
 	companion object {
 		/** Thin, the minimum thickness */
 		val w100 = FontWeight(100)
+		
 		/** Extra-light */
 		val w200 = FontWeight(200)
+		
 		/** Light */
 		val w300 = FontWeight(300)
+		
 		/** Normal / regular / plain */
 		val w400 = FontWeight(400)
+		
 		/** Medium */
 		val w500 = FontWeight(500)
+		
 		/** Semi-bold */
 		val w600 = FontWeight(600)
+		
 		/** Bold */
 		val w700 = FontWeight(700)
+		
 		/** Extra-bold */
 		val w800 = FontWeight(800)
+		
 		/** Black, maximum thickness */
 		val w900 = FontWeight(900)
 		
 		/** The default font weight. */
 		val normal = w400
+		
 		/** A commonly used font weight that is heavier than normal. */
 		val bold = w700
 		

@@ -22,3 +22,8 @@ expect class Locale(language: String) {
 	 */
 	val displayName: String
 }
+
+
+typealias LocaleList = List<Locale>
+
+val defaultLocaleList get() = listOf(Locale.current)

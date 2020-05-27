@@ -2,9 +2,32 @@ package com.lhwdev.ktui
 
 import com.lhwdev.ktui.elements.AmbientElement
 import com.lhwdev.ktui.utils.assert
+import kotlin.properties.ReadOnlyProperty
+import kotlin.reflect.KProperty
 
 
 val sInternalEmptyAttrs = emptyArray<Any?>()
+
+
+@Suppress("NOTHING_TO_INLINE")
+inline fun <S, T> Element<S>.stateCache(noinline block: (S) -> T) = StateCacheProperty(this, block)
+
+class StateCacheProperty<S, T>(val element: Element<S>, val block: (S) -> T) : ReadOnlyProperty<Any?, T> {
+	private var lastKey = 0
+	private var isInitialized = false
+	private var value: T? = null
+	
+	override fun getValue(thisRef: Any?, property: KProperty<*>): T {
+		if(!isInitialized || element.stateKey != lastKey) {
+			value = block(element.state)
+			lastKey = element.stateKey
+			isInitialized = true
+		}
+		
+		@Suppress("UNCHECKED_CAST")
+		return value as T
+	}
+}
 
 
 abstract class Element<T> : DiagnoseTree {
@@ -14,16 +37,23 @@ abstract class Element<T> : DiagnoseTree {
 	private var privateState: T? = null
 	
 	@Suppress("UNCHECKED_CAST")
-	val state: T get() = privateState as T
+	val state: T
+		get() = privateState as T
+	
+	var stateKey = 0
+		private set
 	
 	private var privateKey: Any? = EMPTY
 	
 	val key: Any? get() = privateKey
 	
+	internal var index = 0 // TODO: make slot table flat, not nested
+	
 	
 	enum class LifecycleState { created, initialized, attached, detached }
 	
 	var lifecycleState: LifecycleState = LifecycleState.created
+		private set
 	
 	lateinit var root: Root
 		private set
@@ -35,6 +65,8 @@ abstract class Element<T> : DiagnoseTree {
 	
 	var isDirty: Boolean = true
 		private set
+	
+	val isAttached: Boolean get() = lifecycleState == LifecycleState.attached
 	
 	private sealed class Event {
 		object Attach : Event()
@@ -115,6 +147,7 @@ abstract class Element<T> : DiagnoseTree {
 		pendingEvents += Event.Update
 		privateState = newState
 		isDirty = true
+		stateKey++
 		
 		onRebuilding()
 	}
@@ -159,8 +192,8 @@ abstract class Element<T> : DiagnoseTree {
 		visitChildren { it.rebuilt() }
 	}
 	
-	
 	// listeners
+	
 	
 	open fun onLifecycleStateChanged(lifecycleState: LifecycleState) {}
 	
@@ -177,6 +210,14 @@ abstract class Element<T> : DiagnoseTree {
 	open fun onDispose() {}
 	
 	
+	fun emit(key: Any?, event: Any): Boolean = onEvent(key, event)
+	
+	open fun onEvent(key: Any?, event: Any): Boolean {
+		visitChildren { if(it.onEvent(key, event)) return true }
+		return false
+	}
+	
+	
 	/// Ambients
 	
 	private lateinit var ambients: Set<AmbientElement<*>>
@@ -187,10 +228,10 @@ abstract class Element<T> : DiagnoseTree {
 		visitChildren { it.updateAmbients(childrenAmbient, childrenAmbient) }
 	}
 	
-	@Suppress("UNCHECKED_CAST")
 	fun <T> ambient(ambient: Ambient<T>): T {
 		for(element in ambients)
-			if(element.ambient === ambient) return element.getValue(this) as T
+			@Suppress("UNCHECKED_CAST")
+			element.getValue(ambient)?.let { return it.get(this) as T }
 		return (ambient.defaultValue ?: error("No ambient found: $ambient")).invoke()
 	}
 //	private lateinit var ambients: Set<AmbientData<*>>

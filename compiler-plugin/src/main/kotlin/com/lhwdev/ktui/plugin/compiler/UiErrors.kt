@@ -10,12 +10,7 @@ object UiErrors {
 	@JvmField
 	val widgetInvocationInNonWidget = DiagnosticFactory0.create<PsiElement>(ERROR)
 	
-	@JvmField
-	val widgetInvocationInWidgetUtil = DiagnosticFactory0.create<PsiElement>(ERROR)
-	
-	@JvmField
-	val widgetUtilInvocationInNonWidget = DiagnosticFactory0.create<PsiElement>(ERROR)
-	
+	// TODO: intercept try .. catch and remove this
 	@JvmField
 	val illegalTryCatchAroundWidget = DiagnosticFactory0.create<PsiElement>(ERROR)
 	

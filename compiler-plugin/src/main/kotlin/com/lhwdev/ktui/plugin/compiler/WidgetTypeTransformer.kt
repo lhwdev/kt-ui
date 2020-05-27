@@ -1,5 +1,6 @@
 package com.lhwdev.ktui.plugin.compiler
 
+import com.lhwdev.ktui.plugin.compiler.UiLibrary.WIDGET
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.SourceElement
@@ -8,11 +9,13 @@ import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptorImpl
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.ir.declarations.IrTypeParametersContainer
+import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
+import org.jetbrains.kotlin.ir.types.impl.IrTypeAbbreviationImpl
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
-import org.jetbrains.kotlin.ir.util.SymbolRemapper
-import org.jetbrains.kotlin.ir.util.TypeRemapper
-import org.jetbrains.kotlin.ir.util.TypeTranslator
+import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeProjection
@@ -41,10 +44,11 @@ fun WidgetTypeTransformer() =
 //	target.patchDeclarationParents()
 		
 		val symbolRemapper = LazySymbolDeepCopyRemapper()
-		val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper, pluginContext.typeTranslator, moduleFragment.descriptor.resolveTopLevelClass(BUILD_SCOPE, NoLookupLocation.FROM_BACKEND)!!, AnnotationDescriptorImpl(moduleFragment.descriptor.resolveTopLevelClass(WIDGET, NoLookupLocation.FROM_BACKEND)!!.defaultType, emptyMap(), SourceElement.NO_SOURCE))
+		val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper, pluginContext.typeTranslator, UiLibraryDescriptors.buildScope, AnnotationDescriptorImpl(moduleFragment.descriptor.resolveTopLevelClass(WIDGET, NoLookupLocation.FROM_BACKEND)!!.defaultType, emptyMap(), SourceElement.NO_SOURCE))
 		val transformer = IrTreeTypeTransformerPreservingMetadata(symbolRemapper, typeRemapper)
+		typeRemapper.deepCopy = transformer
 		target.transform(transformer, null)
-//		target.patchDeclarationParents()
+		target.patchDeclarationParents()
 	}
 
 class WidgetTypeRemapper(
@@ -54,7 +58,7 @@ class WidgetTypeRemapper(
 	private val buildScopeTypeDescriptor: ClassDescriptor,
 	private val widgetAnnotation: AnnotationDescriptor
 ) : TypeRemapper {
-//	lateinit var deepCopy: IrElementTransformerVoid
+	lateinit var deepCopy: IrElementTransformerVoid
 	
 	override fun enterScope(irTypeParametersContainer: IrTypeParametersContainer) {
 	}
@@ -66,47 +70,37 @@ class WidgetTypeRemapper(
 	
 	override fun remapType(type: IrType): IrType {
 		if(type !is IrSimpleType) return type
-		type.classifierOrNull?.tryBind()
-		type.annotations.forEach { it.symbol.tryBind() }
+		
 		if(!type.isFunction()) return underlyingRemapType(type)
-		log5("do transform for ${type.renderReadable()}")
-//		symbolRemapper.dump()
-//		if(!type.classifier.isBound)
-//			return underlyingRemapType(type).withLog { "UNBOUNDED" }
+		
 		val isWidget = type.isWidget()
-		val isWidgetUtil = type.isWidgetUtil()
-		if(!isWidget && !isWidgetUtil) return underlyingRemapType(type)
-//		if (!shouldTransform) return underlyingRemapType(type)
+		if(!isWidget) return underlyingRemapType(type)
+		
 		val oldArguments = type.toKotlinType().arguments
 		val newArguments = mutableListOf<TypeProjection>().apply {
-			addAll(oldArguments.subList(0, oldArguments.size - 1))
+			addAll(oldArguments.dropLast(1))
 			add(TypeProjectionImpl(buildScopeTypeDescriptor.defaultType))
-			if(isWidget) add(TypeProjectionImpl(context.builtIns.longType))
+			add(TypeProjectionImpl(context.builtIns.longType))
 			add(oldArguments.last())
 		}
-		val transformedType = context
-			.builtIns
-			.getFunction(oldArguments.size + 1) // return type is an argument, so this is n + 1
-			.defaultType
-			.replace(newArguments).withLog { it.toString() }
-			.replaceAnnotations(Annotations.create(listOf(widgetAnnotation))) // TODO
+		
+		val transformedType = context.builtIns.getFunction(newArguments.size - 1).defaultType
+			.replace(newArguments)
+			.let { it.replaceAnnotations(Annotations.create(it.annotations.filter { annotation -> annotation.fqName != WIDGET })) }
 			.toIrType()
 			.withHasQuestionMark(type.hasQuestionMark) as IrSimpleType
 		
 		return underlyingRemapType(transformedType).withLog { "transformed: " + it.renderReadable() }
 	}
 	
-	private fun underlyingRemapType(type: IrSimpleType): IrType = type
-//	{
-//		return IrSimpleTypeImpl(
-//			null,
-//			symbolRemapper.getReferencedClassifier(context.symbolTable.referenceClassifier(type.classifier.descriptor)).also { log5("URT: ${type.classifier.isBound} ${it.isBound}") },
-//			type.hasQuestionMark,
-//			type.arguments.map { remapTypeArgument(it) },
-//			type.annotations.map { it.transform(deepCopy, null) as IrConstructorCall },
-//			type.abbreviation?.remapTypeAbbreviation()
-//		)
-//	}
+	private fun underlyingRemapType(type: IrSimpleType): IrType = IrSimpleTypeImpl(
+		null,
+		symbolRemapper.getReferencedClassifier(context.symbolTable.referenceClassifier(type.classifier.descriptor)),
+		type.hasQuestionMark,
+		type.arguments.map { remapTypeArgument(it) },
+		type.annotations.map { it.transform(deepCopy, null) as IrConstructorCall },
+		type.abbreviation?.remapTypeAbbreviation()
+	)
 	
 	private fun remapTypeArgument(typeArgument: IrTypeArgument): IrTypeArgument =
 		if(typeArgument is IrTypeProjection)
@@ -114,11 +108,10 @@ class WidgetTypeRemapper(
 		else
 			typeArgument
 	
-	private fun IrTypeAbbreviation.remapTypeAbbreviation() = this
-//		IrTypeAbbreviationImpl(
-//			symbolRemapper.getReferencedTypeAlias(typeAlias),
-//			hasQuestionMark,
-//			arguments.map { remapTypeArgument(it) },
-//			annotations
-//		)
+	private fun IrTypeAbbreviation.remapTypeAbbreviation() = IrTypeAbbreviationImpl(
+		symbolRemapper.getReferencedTypeAlias(typeAlias),
+		hasQuestionMark,
+		arguments.map { remapTypeArgument(it) },
+		annotations
+	)
 }

@@ -1,10 +1,10 @@
 package com.lhwdev.ktui
 
 import com.lhwdev.ktui.elements.WidgetElement
-import com.lhwdev.ktui.elements.WidgetState
 
 
-// Widget implementation v2
+// Widget implementation v3
+// TODO: flat slot table
 
 
 private const val sAllChanged = 0xffffffff.toInt()
@@ -12,7 +12,11 @@ private const val sAllChanged = 0xffffffff.toInt()
 
 class BuildScopeImpl(val root: Root) : BuildScope() {
 	override var currentElement: Element<*> = root
-	private var index = 0
+	private var index
+		get() = currentElement.index
+		set(value) {
+			currentElement.index = value
+		}
 	
 	
 	private inline val widgetElement get() = currentElement as WidgetElement
@@ -21,6 +25,8 @@ class BuildScopeImpl(val root: Root) : BuildScope() {
 	private fun locateWidgetAndBringNextIfPossible(id: Int, key: Any?): Element<*>? { // TODO: key delegation
 		val current = currentElement
 		val children = current.children
+		val index = index
+		
 		for(i in index until children.size) {
 			val child = children[i]
 			if(id == child.id && key == child.key) {
@@ -55,8 +61,7 @@ class BuildScopeImpl(val root: Root) : BuildScope() {
 		
 		val last = startTransactWithElement(id, internalKeyOf(attrs, keyIndex)) as WidgetElement?
 		if(last == null) {
-			val state = WidgetState(attrs, keyIndex)
-			commitStartWithElementOnCreated(WidgetElement(), state)
+			commitStartWithElementOnCreated(WidgetElement(), attrs)
 			return sAllChanged
 		}
 		
@@ -114,22 +119,18 @@ class BuildScopeImpl(val root: Root) : BuildScope() {
 		currentElement = element
 	}
 	
-	
-	override fun end(returnValue: Any?) {
-		widgetElement.returnValue = returnValue
-		end()
-	}
-	
 	override fun end() {
 		currentElement = currentElement.parent!!
 		index++
 	}
 	
-	override fun endSkip(): Any? {
-		val skipped = currentElement
-		end()
-		skipped.skipBuilding()
-		return (skipped as WidgetElement).returnValue
+	
+	override fun startExpr(id: Long) {
+		start(id, sInternalEmptyAttrs, -1) // TODO
+	}
+	
+	override fun endExpr() {
+		end() // TODO
 	}
 	
 	

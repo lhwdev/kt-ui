@@ -10,18 +10,17 @@ data class BaselineShift(val multiplier: Float) {
 		/**
 		 * Default baseline shift for superscript.
 		 */
-		val Superscript = BaselineShift(0.5f)
+		val superscript = BaselineShift(0.5f)
 		
 		/**
-		 * Default baseline shift for subscript
+		 * Default baseline shift for subscript.
 		 */
-		val Subscript = BaselineShift(-0.5f)
+		val subscript = BaselineShift(-0.5f)
 		
 		/**
 		 * Constant for no baseline shift.
 		 */
-		val None = BaselineShift(0.0f)
-		
+		val none = BaselineShift(0.0f)
 	}
 }
 

@@ -1,6 +1,6 @@
 package com.lhwdev.ktui.plugin.compiler
 
-import com.lhwdev.ktui.plugin.compiler.UiWritableSlices.FCS_RESOLVEDCALL_WIDGET
+import com.lhwdev.ktui.plugin.compiler.UiWritableSlices.FCS_RESOLVED_CALL_WIDGET
 import com.lhwdev.ktui.plugin.compiler.UiWritableSlices.WIDGET_ANALYSIS
 import org.jetbrains.kotlin.com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.com.intellij.psi.PsiElement
@@ -47,34 +47,34 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 		}
 	}
 	
-	fun shouldInvokeAsTag(trace: BindingTrace, resolvedCall: ResolvedCall<*>): WidgetKind {
+	fun shouldInvokeAsTag(trace: BindingTrace, resolvedCall: ResolvedCall<*>): Boolean {
 		if(resolvedCall is VariableAsFunctionResolvedCall) {
-			resolvedCall.variableCall.candidateDescriptor.type.anyWidgetKind?.let { return it }
-			resolvedCall.functionCall.resultingDescriptor.anyWidgetKind?.let { return it }
+			if(resolvedCall.variableCall.candidateDescriptor.type.isWidget()) return true
+			if(resolvedCall.functionCall.resultingDescriptor.isWidget()) return true
 		}
 		val candidateDescriptor = resolvedCall.candidateDescriptor
 		if(candidateDescriptor is FunctionDescriptor) {
 			if(candidateDescriptor.isOperator &&
 				candidateDescriptor.name == OperatorNameConventions.INVOKE) {
-				resolvedCall.dispatchReceiver?.type?.anyWidgetKind?.let { return it }
+				if(resolvedCall.dispatchReceiver?.type?.isWidget() == true) return true
 			}
 		}
 		if(candidateDescriptor is FunctionDescriptor) {
 			return analyze(trace, candidateDescriptor)
 		}
 		if(candidateDescriptor is ValueParameterDescriptor) {
-			return candidateDescriptor.type.widgetKind
+			return candidateDescriptor.type.isWidget()
 		}
 		if(candidateDescriptor is LocalVariableDescriptor) {
-			return candidateDescriptor.type.widgetKind
+			return candidateDescriptor.type.isWidget()
 		}
 		if(candidateDescriptor is PropertyDescriptor) {
-			return candidateDescriptor.widgetKind
+			return candidateDescriptor.isWidget()
 		}
-		return candidateDescriptor.widgetKind
+		return candidateDescriptor.isWidget()
 	}
 	
-	fun analyze(trace: BindingTrace, descriptor: FunctionDescriptor): WidgetKind {
+	fun analyze(trace: BindingTrace, descriptor: FunctionDescriptor): Boolean {
 		val unwrappedDescriptor = when(descriptor) {
 //			is WidgetFunctionDescriptor -> descriptor.underlyingDescriptor // TODO
 			else -> descriptor
@@ -91,40 +91,40 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 //			) ?: false) {
 //			widgetKind = WidgetKind.marked
 //		} else {
-		var widgetKind = when(unwrappedDescriptor) {
+		var isWidget = when(unwrappedDescriptor) {
 //				is VariableDescriptor ->
 //					if (unwrappedDescriptor.hasWidgetAnnotation() ||
 //						unwrappedDescriptor.type.hasWidgetAnnotation()
 //					)
 //						WidgetKind =
 //							WidgetKind.marked
-			is ConstructorDescriptor -> unwrappedDescriptor.widgetKind
-			is JavaMethodDescriptor -> unwrappedDescriptor.widgetKind
+			is ConstructorDescriptor -> unwrappedDescriptor.isWidget()
+			is JavaMethodDescriptor -> unwrappedDescriptor.isWidget()
 			is AnonymousFunctionDescriptor -> {
 //				if(unwrappedDescriptor.hasWidgetAnnotation()) WidgetKind =
 //					widgetKind.Marked
-				unwrappedDescriptor.widgetKind
+				unwrappedDescriptor.isWidget()
 //				if(psi is KtFunctionLiteral && psi.isEmitInline(trace.bindingContext)) {
 //					widgetKind = WidgetKind.Marked
 //				}
 			}
-			is PropertyGetterDescriptor -> unwrappedDescriptor.widgetKind
+			is PropertyGetterDescriptor -> unwrappedDescriptor.isWidget()
 			
-			else -> unwrappedDescriptor.widgetKind
+			else -> unwrappedDescriptor.isWidget()
 		}
 		(unwrappedDescriptor.findPsi() as? KtElement)?.let { element ->
-			widgetKind = analyzeFunctionContents(trace, element, widgetKind)
+			isWidget = analyzeFunctionContents(trace, element, isWidget)
 		}
-		psi?.let { trace.record(WIDGET_ANALYSIS, it, widgetKind) }
-		return widgetKind
+		psi?.let { trace.record(WIDGET_ANALYSIS, it, isWidget) }
+		return isWidget
 	}
 	
 	private fun analyzeFunctionContents(
 		trace: BindingTrace,
 		element: KtElement,
-		signatureWidgetability: WidgetKind
-	): WidgetKind {
-		var widgetKind = signatureWidgetability
+		signatureWidgetability: Boolean
+	): Boolean {
+		var isWidget = signatureWidgetability
 		var localFcs = false
 		var isInlineLambda = false
 		
@@ -162,50 +162,40 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 				val resolvedCall = expression.getResolvedCall(trace.bindingContext)
 				checkResolvedCall(
 					resolvedCall,
-					trace.get(FCS_RESOLVEDCALL_WIDGET, expression),
+					trace.get(FCS_RESOLVED_CALL_WIDGET, expression),
 					expression.calleeExpression ?: expression
 				)
 				super.visitCallExpression(expression)
 			}
 			
 			@Suppress("NON_EXHAUSTIVE_WHEN")
-			fun checkWidgetCall(from: WidgetKind, to: WidgetKind, reportElement: PsiElement) {
-				log5("checkWidgetCall $from -> $to of ${reportElement.text}")
-				when(from) {
-					WidgetKind.none -> when(to) {
-						WidgetKind.widget -> trace.report(UiErrors.widgetInvocationInNonWidget.on(reportElement))
-						WidgetKind.widgetUtil -> trace.report(UiErrors.widgetUtilInvocationInNonWidget.on(reportElement))
-					}
-					WidgetKind.widgetUtil -> if(to == WidgetKind.widget)
-						trace.report(UiErrors.widgetInvocationInWidgetUtil.on(reportElement))
-				}
-				
+			fun checkWidgetCall(from: Boolean, to: Boolean, reportElement: PsiElement) {
+				if(!from && to) trace.report(UiErrors.widgetInvocationInNonWidget.on(reportElement))
 			}
 			
 			private fun checkResolvedCall(
 				resolvedCall: ResolvedCall<*>?,
-				callKind: WidgetKind?,
+				callIsWidget: Boolean?,
 				reportElement: KtExpression
 			) {
-				log3("checkResolvedCall")
-				resolvedCall?.candidateDescriptor?.widgetKind?.let { kind ->
-					if(kind != WidgetKind.none) {
+				resolvedCall?.candidateDescriptor?.isWidget()?.let { isWidget ->
+					if(isWidget) {
 						localFcs = true
 						if(!isInlineLambda)
-							checkWidgetCall(from = widgetKind, to = kind, reportElement)
+							checkWidgetCall(from = isWidget, to = isWidget, reportElement)
 					}
 				}
 				
 				// Can be null in cases where the call isn't resolvable (eg. due to a bug/typo in the user's code)
-				if(callKind != null && callKind != WidgetKind.none) {
+				if(callIsWidget != null && callIsWidget) {
 					localFcs = true
 					
 					if(!isInlineLambda)
-						checkWidgetCall(widgetKind, callKind, reportElement)
+						checkWidgetCall(isWidget, callIsWidget, reportElement)
 				}
 			}
 		}, null)
-		if(localFcs && !isInlineLambda && widgetKind == WidgetKind.none) {
+		if(localFcs && !isInlineLambda && !isWidget) {
 			// TODO: is this branch needed?
 			val reportElement = when(element) {
 				is KtNamedFunction -> element.nameIdentifier ?: element
@@ -216,7 +206,7 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 //		if(localFcs && widgetKind == widgetKind.NotWidget) // TODO
 //			widgetKind =
 //				widgetKind.Inferred
-		return widgetKind
+		return isWidget
 	}
 	
 	/**
@@ -226,10 +216,10 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 	 *  - Report errors (eg. invocations of an widgetKind etc)
 	 *  - Return the kind of the element
 	 */
-	fun analyze(trace: BindingTrace, element: KtElement, type: KotlinType?): WidgetKind {
+	fun analyze(trace: BindingTrace, element: KtElement, type: KotlinType?): Boolean {
 		trace.bindingContext.get(WIDGET_ANALYSIS, element)?.let { return it }
 		
-		var widgetKind = WidgetKind.none
+		var widgetKind = false
 		
 		if(element is KtClass) {
 //			val descriptor = trace.bindingContext.get(BindingContext.CLASS, element)
@@ -254,7 +244,7 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 			element.typeReference?.annotationEntries
 				?.mapNotNull { trace.bindingContext.get(BindingContext.ANNOTATION, it) }
 				?.let {
-					widgetKind += it.widgetKind
+					widgetKind = widgetKind || it.isWidget()
 				}
 			
 		}
@@ -262,13 +252,13 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 			element.typeReference?.annotationEntries
 				?.mapNotNull { trace.bindingContext.get(BindingContext.ANNOTATION, it) }
 				?.let {
-					widgetKind = it.widgetKind
+					widgetKind = it.isWidget()
 				}
 		}
 		
 		// if (candidateDescriptor.type.arguments.size != 1 || !candidateDescriptor.type.arguments[0].type.isUnit()) return false
 		if(type != null && type !== TypeUtils.NO_EXPECTED_TYPE)
-			widgetKind += type.widgetKind
+			widgetKind = widgetKind || type.isWidget()
 		
 		val parent = element.parent
 		val annotations = when {
@@ -279,7 +269,7 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 			else -> emptyList()
 		}
 		
-		widgetKind += annotations.mapNotNull { trace.bindingContext.get(BindingContext.ANNOTATION, it) }.widgetKind
+		widgetKind = widgetKind || annotations.mapNotNull { trace.bindingContext.get(BindingContext.ANNOTATION, it) }.isWidget()
 		
 		
 		if(element is KtLambdaExpression || element is KtFunction) {
@@ -356,7 +346,7 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 	) {
 		val shouldBeTag = shouldInvokeAsTag(context.trace, resolvedCall)
 		context.trace.record(
-			FCS_RESOLVEDCALL_WIDGET,
+			FCS_RESOLVED_CALL_WIDGET,
 			resolvedCall.call.callElement,
 			shouldBeTag
 		)
@@ -371,7 +361,7 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 		if(expression is KtLambdaExpression) {
 			val expectedType = c.expectedType
 			if(expectedType === TypeUtils.NO_EXPECTED_TYPE) return
-			val expectedKind = expectedType.widgetKind
+			val expectedKind = expectedType.isWidget()
 			val widgetKind = analyze(c.trace, expression, c.expectedType)
 			if(expectedKind != widgetKind) {
 				TODO("differs: expected $expectedKind analyzed $widgetKind")
@@ -427,8 +417,8 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 			if(expectedType.isMarkedNullable &&
 				expressionTypeWithSmartCast == nullableNothingType) return
 			
-			val expectedKind = expectedType.widgetKind
-			val kind = expressionType.widgetKind
+			val expectedKind = expectedType.isWidget()
+			val kind = expressionType.isWidget()
 			
 			if(expectedKind != kind) {
 				val reportOn =
@@ -466,7 +456,4 @@ class WidgetAnnotationChecker : CallChecker, DeclarationChecker,
 //			)
 //		}
 //	}
-	
-	operator fun WidgetKind.plus(rhs: WidgetKind): WidgetKind =
-		if(this > rhs) this else rhs
 }

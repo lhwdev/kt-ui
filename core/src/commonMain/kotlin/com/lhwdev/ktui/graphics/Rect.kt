@@ -1,14 +1,15 @@
 package com.lhwdev.ktui.graphics
 
+import com.lhwdev.ktui.Immutable
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 
 /**
  * Represents a floating-point rectangle, which is positioned and sized.
  */
+@Immutable
 data class Rect(val left: Float, val top: Float, val right: Float, val bottom: Float) {
 	companion object {
 		fun sized(x: Float, y: Float, width: Float, height: Float): Rect =

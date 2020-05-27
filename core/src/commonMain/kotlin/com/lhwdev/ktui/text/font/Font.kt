@@ -1,6 +1,9 @@
 package com.lhwdev.ktui.text.font
 
+import com.lhwdev.ktui.Immutable
 
+
+@Immutable
 interface Font {
 	val name: String
 	

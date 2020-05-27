@@ -1,30 +1,33 @@
 package com.lhwdev.ktui.plugin.compiler
 
-import kotlin.system.measureTimeMillis
+import com.lhwdev.ktui.plugin.compiler.util.provideContext
 
 
-fun UiIrContext.transformations(block: TransformationsScope.() -> Unit) {
-	sCurrentLowering = this
-	try {
-		TransformationsScope().block()
-	} finally {
-		sCurrentLowering = null
+private val sEmptyScope = object : UiIrPhase {
+	override fun lower() {
 	}
 }
 
-class TransformationsScope {
-	operator fun UiIrPhase.unaryPlus() {
-		val name = phaseName ?: this::class.simpleName
-		log6("== == Transformation Phase: $name == ==")
-		val time = measureTimeMillis {
-			lower()
+
+fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit) {
+	sCurrentTransformation = this
+	provideContext(pluginContext) {
+		try {
+			sEmptyScope.apply {
+				+object : AbstractUiIrPhase() {
+					override val phaseName = name
+					
+					override fun lower() {
+						block()
+					}
+				}
+			}
+		} finally {
+			sCurrentTransformation = null
 		}
-		log6("== == End Transformation: $name | took $time ms == ==")
-		log("\n")
 	}
 }
 
-private var sCurrentLowering: UiIrContext? = null
+private var sCurrentTransformation: UiIrContext? = null
 
-fun currentLowering() = sCurrentLowering!!
-
+fun currentTransformation() = sCurrentTransformation!!

@@ -35,7 +35,7 @@ import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
 class WidgetAnnotator : Annotator {
 	companion object TextAttributeRegistry {
 		val WIDGET_CALL_TEXT_ATTRIBUTES_KEY: TextAttributesKey
-		val WIDGET_CALL_TEXT_ATTRIBUTES_NAME = "WidgetCallTextAttributes"
+		const val WIDGET_CALL_TEXT_ATTRIBUTES_NAME = "WidgetCallTextAttributes"
 		private val ANALYSIS_RESULT_KEY = Key<AnalysisResult>(
 			"WidgetAnnotator.DidAnnotateKey"
 		)

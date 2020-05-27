@@ -21,12 +21,8 @@ import org.jetbrains.kotlin.com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.diagnostics.Diagnostic
 import org.jetbrains.kotlin.diagnostics.Errors
 import org.jetbrains.kotlin.psi.KtAnnotatedExpression
-import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.diagnostics.DiagnosticSuppressor
-
-
-private val sWidgetKindFqNames = arrayOf(WIDGET, WIDGET_UTIL)
 
 
 open class UiDiagnosticSuppressor : DiagnosticSuppressor {
@@ -77,7 +73,7 @@ open class UiDiagnosticSuppressor : DiagnosticSuppressor {
 		if(diagnostic.factory == Errors.NOTHING_TO_INLINE) {
 			(diagnostic.psiElement as? KtAnnotatedExpression)?.annotationEntries?.forEach {
 				if(it.shortName?.identifier == "Widget") log5("suppress? WIDGET")
-				if(bindingContext?.get(BindingContext.ANNOTATION, it)?.fqName in sWidgetKindFqNames)
+				if(bindingContext?.get(BindingContext.ANNOTATION, it)?.fqName == UiLibrary.WIDGET)
 					return true.withLog { "found suppress" }
 			}
 		}

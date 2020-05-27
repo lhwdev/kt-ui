@@ -7,7 +7,7 @@ import org.jetbrains.kotlin.diagnostics.rendering.RenderingContext
 
 
 object UiDefaultErrorMessages : DefaultErrorMessages.Extension {
-	private val MAP = DiagnosticFactoryToRendererMap("Compose")
+	private val MAP = DiagnosticFactoryToRendererMap("kt-ui")
 	override fun getMap() =
 		MAP
 	
@@ -21,10 +21,7 @@ object UiDefaultErrorMessages : DefaultErrorMessages.Extension {
 		MAP.put(UiErrors.widgetInvocationInNonWidget,
 			"Functions which invoke @Widget functions must be marked with the @Widget annotation")
 		
-		MAP.put(UiErrors.widgetInvocationInWidgetUtil,
-			"@WidgetUtil functions cannot invoke @Widget functions")
-		
-		MAP.put(UiErrors.widgetUtilInvocationInNonWidget,
-			"Functions which invoke @WidgetUtil functions must be marked with the @Widget annotation or @WidgetUtil annotation")
+		MAP.put(UiErrors.illegalTryCatchAroundWidget,
+			"Widget functions should not use try/catch etc.")
 	}
 }

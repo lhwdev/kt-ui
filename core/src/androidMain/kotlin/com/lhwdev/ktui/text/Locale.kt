@@ -14,16 +14,16 @@ actual class Locale(val platformLocale: JLocale) {
 	/**
 	 * The ISO 639 compliant language code.
 	 */
-	actual val language get() = platformLocale.language
+	actual val language: String get() = platformLocale.language
 	
 	
 	/**
 	 * The ISO 3166 compliant region code.
 	 */
-	actual val region get() = platformLocale.country
+	actual val region: String get() = platformLocale.country
 	
 	/**
 	 * The name that can be used to display the locale name in user-friendly way.
 	 */
-	actual val displayName get() = platformLocale.displayName
+	actual val displayName: String get() = platformLocale.displayName
 }

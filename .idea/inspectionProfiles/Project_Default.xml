@@ -5,6 +5,7 @@
     <inspection_tool class="AccessorsWereOverridden" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="AlwaysNilVariable" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="AmbiguousMixinReference" enabled="false" level="ERROR" enabled_by_default="false" />
+    <inspection_tool class="AndroidLintNoHardKeywords" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="AnnotationOutsideOfMixin" enabled="false" level="ERROR" enabled_by_default="false" />
     <inspection_tool class="ApiName" enabled="true" level="ERROR" enabled_by_default="true" />
     <inspection_tool class="ApiNamespace" enabled="true" level="ERROR" enabled_by_default="true" />

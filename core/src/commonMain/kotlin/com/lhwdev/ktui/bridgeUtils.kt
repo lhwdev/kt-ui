@@ -8,5 +8,5 @@ package com.lhwdev.ktui
 inline fun currentId() = currentScope().currentElement.id
 
 
-@Widget
+@WidgetUtil
 inline fun <R> currentScope(block: BuildScope.() -> R) = currentScope().block()
