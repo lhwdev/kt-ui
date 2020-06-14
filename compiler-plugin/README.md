@@ -111,3 +111,4 @@
     Solution: group them as 'replaceable group'
   - support referencing widget function like: `::MyWidget`
   - do not create Element instance for normal functional widgets
+  - remove `$id` parameter: put in `$buildScope.startExpr(..)`

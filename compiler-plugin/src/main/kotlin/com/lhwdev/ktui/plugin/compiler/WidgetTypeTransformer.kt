@@ -1,26 +1,30 @@
 package com.lhwdev.ktui.plugin.compiler
 
-import com.lhwdev.ktui.plugin.compiler.UiLibrary.WIDGET
+import com.lhwdev.ktui.plugin.compiler.util.irFunctionExpression
+import com.lhwdev.ktui.plugin.compiler.util.scope
+import com.lhwdev.ktui.plugin.compiler.util.symbol
+import com.lhwdev.ktui.plugin.compiler.util.toIrType
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.SourceElement
-import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
-import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptorImpl
-import org.jetbrains.kotlin.descriptors.annotations.Annotations
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation
+import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.declarations.IrTypeParametersContainer
-import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
+import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
 import org.jetbrains.kotlin.ir.types.impl.IrTypeAbbreviationImpl
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
-import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.ir.util.DeepCopySymbolRemapper
+import org.jetbrains.kotlin.ir.util.SymbolRemapper
+import org.jetbrains.kotlin.ir.util.TypeRemapper
+import org.jetbrains.kotlin.ir.util.patchDeclarationParents
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
-import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
-import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.ir.visitors.acceptVoid
+import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.types.TypeProjection
 import org.jetbrains.kotlin.types.TypeProjectionImpl
 import org.jetbrains.kotlin.types.replace
+import kotlin.system.measureTimeMillis
 
 
 fun WidgetTypeTransformer() =
@@ -43,20 +47,61 @@ fun WidgetTypeTransformer() =
 //	target.transform(transformer, null)
 //	target.patchDeclarationParents()
 		
-		val symbolRemapper = LazySymbolDeepCopyRemapper()
-		val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper, pluginContext.typeTranslator, UiLibraryDescriptors.buildScope, AnnotationDescriptorImpl(moduleFragment.descriptor.resolveTopLevelClass(WIDGET, NoLookupLocation.FROM_BACKEND)!!.defaultType, emptyMap(), SourceElement.NO_SOURCE))
-		val transformer = IrTreeTypeTransformerPreservingMetadata(symbolRemapper, typeRemapper)
+		val symbolRemapper = DeepCopySymbolRemapper()
+		val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper)
+		measureTimeMillis { target.acceptVoid(symbolRemapper) }.withLog { "remapping symbols took $it ms" }
+		val transformer = DeepCopyIrTreeWithSymbolsPreservingMetadata(context, symbolRemapper, typeRemapper, context.typeTranslator)
 		typeRemapper.deepCopy = transformer
 		target.transform(transformer, null)
 		target.patchDeclarationParents()
+		
+		target.transformChildrenVoid(object : IrElementTransformerVoid() {
+			override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression {
+				for((index, argument) in expression.valueArguments.withIndex()) {
+					if(argument == null) continue
+					val lambda = argument.asLambdaFunction() ?: continue
+					if(lambda.widgetMarker != null)
+						expression.putValueArgument(index, when(argument) {
+							is IrFunctionExpression -> argument.scope.irFunctionExpression(argument.type.mapToWidget(), argument.function, argument.origin)
+							is IrBlock -> IrBlockImpl(argument.startOffset, argument.endOffset, argument.type.mapToWidget(), argument.origin, argument.statements)
+							else -> error("unknown type of argument $argument")
+						})
+				}
+				return super.visitFunctionAccess(expression)
+			}
+		})
 	}
+
+private fun IrType.mapToWidget() = (replaceAnnotations(
+	annotations + IrConstructorCallImpl(
+		UNDEFINED_OFFSET, UNDEFINED_OFFSET,
+		UiLibraryDescriptors.widget.defaultType.toIrType(), UiLibraryDescriptors.widget.constructors.single().symbol,
+		0, 0, 0
+	)
+) as IrSimpleType).convertToWidgetType()
+
+
+fun IrSimpleType.convertToWidgetType(): IrSimpleType {
+	val oldArguments = toKotlinType().arguments
+	val newArguments = mutableListOf<TypeProjection>().apply {
+		val realParams = oldArguments.dropLast(1)
+		addAll(realParams)
+		add(TypeProjectionImpl(UiLibraryDescriptors.buildScope.defaultType))
+		val changedCount = widgetChangedParamsCount(realParams.size + 1)
+		for(i in 0 until changedCount) add(TypeProjectionImpl(context.builtIns.intType))
+		add(oldArguments.last())
+	}
+	
+	return context.builtIns.getFunction(newArguments.size - 1).defaultType
+		.replace(newArguments)
+		.toIrType()
+		.replaceAnnotations(annotations)
+		.withHasQuestionMark(hasQuestionMark) as IrSimpleType
+}
 
 class WidgetTypeRemapper(
 	private val context: IrPluginContext,
-	private val symbolRemapper: SymbolRemapper,
-	private val typeTranslator: TypeTranslator,
-	private val buildScopeTypeDescriptor: ClassDescriptor,
-	private val widgetAnnotation: AnnotationDescriptor
+	private val symbolRemapper: SymbolRemapper
 ) : TypeRemapper {
 	lateinit var deepCopy: IrElementTransformerVoid
 	
@@ -66,8 +111,6 @@ class WidgetTypeRemapper(
 	override fun leaveScope() {
 	}
 	
-	private fun KotlinType.toIrType(): IrType = typeTranslator.translateType(this)
-	
 	override fun remapType(type: IrType): IrType {
 		if(type !is IrSimpleType) return type
 		
@@ -76,26 +119,14 @@ class WidgetTypeRemapper(
 		val isWidget = type.isWidget()
 		if(!isWidget) return underlyingRemapType(type)
 		
-		val oldArguments = type.toKotlinType().arguments
-		val newArguments = mutableListOf<TypeProjection>().apply {
-			addAll(oldArguments.dropLast(1))
-			add(TypeProjectionImpl(buildScopeTypeDescriptor.defaultType))
-			add(TypeProjectionImpl(context.builtIns.longType))
-			add(oldArguments.last())
-		}
-		
-		val transformedType = context.builtIns.getFunction(newArguments.size - 1).defaultType
-			.replace(newArguments)
-			.let { it.replaceAnnotations(Annotations.create(it.annotations.filter { annotation -> annotation.fqName != WIDGET })) }
-			.toIrType()
-			.withHasQuestionMark(type.hasQuestionMark) as IrSimpleType
+		val transformedType = type.convertToWidgetType()
 		
 		return underlyingRemapType(transformedType).withLog { "transformed: " + it.renderReadable() }
 	}
 	
 	private fun underlyingRemapType(type: IrSimpleType): IrType = IrSimpleTypeImpl(
 		null,
-		symbolRemapper.getReferencedClassifier(context.symbolTable.referenceClassifier(type.classifier.descriptor)),
+		symbolRemapper.getReferencedClassifier(type.classifier),
 		type.hasQuestionMark,
 		type.arguments.map { remapTypeArgument(it) },
 		type.annotations.map { it.transform(deepCopy, null) as IrConstructorCall },

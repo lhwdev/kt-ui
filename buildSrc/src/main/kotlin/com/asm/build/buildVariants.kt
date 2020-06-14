@@ -15,7 +15,7 @@ const val VERSION_NAME = "0.0.1" // we use semantic versioning
 // versions
 
 // kotlin
-const val kotlinVersion = "1.4-M1" // up-to-date-kotlinVersion
+const val kotlinVersion = "1.4-M2" // up-to-date-kotlinVersion
 const val coroutine = "1.3.5"
 
 // android build tool

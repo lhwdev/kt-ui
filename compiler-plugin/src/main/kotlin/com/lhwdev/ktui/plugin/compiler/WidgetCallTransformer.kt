@@ -1,12 +1,23 @@
 package com.lhwdev.ktui.plugin.compiler
 
 import com.lhwdev.ktui.plugin.compiler.util.*
-import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.backend.jvm.lower.inlineclasses.InlineClassAbi
+import org.jetbrains.kotlin.descriptors.ValueParameterDescriptor
+import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionAccessExpression
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.symbols.IrFunctionSymbol
+import org.jetbrains.kotlin.ir.symbols.IrValueParameterSymbol
+import org.jetbrains.kotlin.ir.types.IrSimpleType
+import org.jetbrains.kotlin.ir.types.IrType
+import org.jetbrains.kotlin.ir.types.classOrNull
+import org.jetbrains.kotlin.ir.util.constructors
+import org.jetbrains.kotlin.ir.util.findFirstFunction
+import org.jetbrains.kotlin.resolve.calls.components.isVararg
 
 
 // TODO: lambda fun is not skippable
@@ -17,79 +28,169 @@ class WidgetCallTransformer : IrWidgetElementTransformerVoidScoped(), UiIrPhase 
 		target.transformChildrenVoid()
 	}
 	
-	
-	override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression =
-		with(expression) {
-			when(this) {
-				is IrCall, is IrConstructorCall -> Unit
-				else -> return super.visitFunctionAccess(expression)
-			}
-			
-			// is widget call or widget lambda call
-			val isWidget = symbol.descriptor.isWidget()
-			if(!isWidget) return super.visitFunctionAccess(expression)
-			
-			log5(expression.symbol.descriptor.dump())
-			
-			val info = symbol.getOrPopulateInfo()
-			val caller = widgetScope
-			
-			irCall(
-				info.functionSymbol,
-				valueArguments = valueArguments, typeArguments = typeArguments,
-				dispatchReceiver = dispatchReceiver, extensionReceiver = extensionReceiver
-			).apply {
-				putValueArgument(info.buildScopeParameter, irGet(widgetScope.info.buildScopeParameter))
-				putValueArgument(info.idParameter, irInt(getLocationId()))
-				val paramState = ParamStateList(info.changedParameters)
-				
-				val changedParametersCount = info.changedParameters.size
-				
-				val changedArguments = info.realParameters.mapIndexed { paramIndex, parameter ->
-					val (_, bitIndex) = indexesForParameter(paramIndex)
-					val argument = getValueArgument(paramIndex)
-					val visitor = WidgetStaticObserver()
-					// TODO: handle default arguments
-					val isStatic = (argument
-						?: (info.functionSymbol.ownerOrNull as? IrFunction)?.let { it.valueParameters[paramIndex].defaultValue?.expression })?.accept(visitor, null)
-					
-					var stateInt = 0
-					val stateExprs = mutableListOf<IrExpression>()
-					
-					when {
-//						isStatic -> stateInt = stateInt or (0b11 shl bitIndex)
-//						visitor.dependsOn.size == 1 -> stateExprs += paramState.run { shiftBitAt(caller.info.realParameters.indexOf(tracker.dependsOn.single()), paramIndex) }
-						else -> Unit // 0b00 // if depends on multiple arguments, can handle it but just don't?
-					}
-					
-					when(stateExprs.size) {
-						0 -> irInt(stateInt)
-						else -> irOr(irInt(stateInt), stateExprs.reduce { acc, state -> irOr(acc, state) })
-					}
-				}
-			}
+	override fun visitFunctionAccess(
+		expression: IrFunctionAccessExpression
+	): IrExpression = with(expression) {
+		when(this) {
+			is IrCall, is IrConstructorCall -> Unit
+			else -> return super.visitFunctionAccess(expression)
 		}
+		
+		// is widget call or widget lambda call
+		val isWidget = symbol.descriptor.isWidget()
+		val isWidgetLambdaInvocation = dispatchReceiver?.type?.isWidget() ?: false && symbol.descriptor.isFunctionInvoke()
+		
+		when {
+			isWidget -> {
+				val info = expression.symbol.getOrPopulateInfo()
+				
+				irWidgetCall(info)
+			}
+			
+			isWidgetLambdaInvocation -> {
+				val realCount = valueArgumentsCount
+				val changedCount = widgetChangedParamsCount(realCount + 1)
+				var allCount = valueArgumentsCount + 2 + changedCount
+				if(symbol.descriptor.extensionReceiverParameter != null) allCount++
+				val functionClass = builtIns.getFunction(allCount + if(symbol.descriptor.extensionReceiverParameter == null) 0 else 1)
+				val newInvocation = functionClass.findFirstFunction("invoke") { it.valueParameters.size == allCount }.symbol.tryBind().owner as IrSimpleFunction
+				val buildScopeIndex = realCount
+				val changedIndex = buildScopeIndex + 1
+				val parameters = newInvocation.valueParameters
+				val info = WidgetTransformationInfoForCall(
+					WidgetTransformationKind.innerWidget,
+					newInvocation.symbol, parameters.subList(0, realCount).map { it.symbol },
+					parameters[buildScopeIndex].symbol,
+					parameters.drop(changedIndex).map { it.symbol },
+					null // lambda do not have any default values
+				)
+				
+				val newTypeArguments = listOfNotNull(symbol.descriptor.extensionReceiverParameter?.type?.toIrType()) +
+					typeArguments.requireNoNulls() +
+					UiLibraryDescriptors.buildScope.defaultType.toIrType() +
+					irBuiltIns.intType +
+					(0 until changedCount).map { irBuiltIns.intType }
+				
+				irInvoke(
+					functionSymbol = newInvocation.symbol,
+					functionalTypeReceiver = dispatchReceiver!!,
+					valueArguments = listOfNotNull(extensionReceiver) + valueArguments.requireNoNulls()
+				).irWidgetCall(info)
+			}
+			
+			else -> super.visitFunctionAccess(this)
+		}
+	}
 	
-	fun getLocationId() = 123
+	private fun IrFunctionAccessExpression.irWidgetCall(info: WidgetTransformationInfoForCall): IrExpression {
+		val caller = widgetScope
+		
+		return irCall(
+			info.functionSymbol,
+			valueArguments = valueArguments, typeArguments = typeArguments,
+			dispatchReceiver = dispatchReceiver, extensionReceiver = extensionReceiver
+		).apply {
+			putValueArgument(info.buildScopeParameter, irGet(caller.info.buildScopeParameter))
+			
+			val paramState = ParamStateList(info.changedParameters)
+			
+			val realParameters = info.realParameters
+			var default = 0
+			
+			var defaultIndex = 0
+			
+			info.changedParameters.forEachIndexed { changedIndex, changedParam ->
+				var stateInt = 0
+				val stateExprs = mutableListOf<IrExpression>()
+				
+				for(realIndex in changedIndex * PARAM_COUNT_PER_INT until minOf(realParameters.size, (changedIndex + 1) * PARAM_COUNT_PER_INT)) {
+					val realParam = realParameters[realIndex]
+					val (_, bitIndex) = indexesForParameter(realIndex + 1)
+					val argument = getValueArgument(realIndex) // it is not transformed yet, so can be null
+					if(argument == null) {
+						default = default or (1 shl defaultIndex)
+						putValueArgument(realIndex, if(realParam.descriptor.isVararg) irNull() else realParam.descriptor.type.toIrType().defaultValue())
+					} else {
+						val visitor = WidgetStaticObserver()
+						// TODO: handle default arguments
+						val dependType = argument.accept(visitor, null)
+						
+						if(dependType == DependType.static) stateInt = stateInt or (0b11 shl bitIndex)
+						else if(dependType == DependType.stateless) (visitor.dependencies.singleOrNull() as? IrValueParameterSymbol)?.let {
+							val dependencyIndex = info.realParameters.indexOf(it)
+							if(dependencyIndex != -1)
+								stateExprs += paramState.run { shiftBitAt(dependencyIndex, bitIndex) }
+						}
+					}
+					
+					// before WidgetBodyTransformer which removes all defaultValue attribute
+					if((realParam.descriptor as ValueParameterDescriptor).declaresDefaultValue())
+						defaultIndex++
+				}
+				
+				val changedArgument = when(stateExprs.size) {
+					0 -> irInt(stateInt)
+					else -> irOr(irInt(stateInt), stateExprs.reduce { acc, state -> irOr(acc, state) })
+				}
+				
+				putValueArgument(changedParam, changedArgument)
+			}
+			
+			info.defaultParameter?.let { putValueArgument(it, irInt(default)) }
+		}.let { super.visitFunctionAccess(it) }
+	}
 	
 	private fun IrFunctionSymbol.getOrPopulateInfo() =
-		(if(isBound) owner.widgetInfoMarkerForCall else null) ?: with(descriptor) {
+		(if(tryBind().isBound) owner.widgetInfoMarkerForCall!! else TODO()) /*?: with(descriptor) {
+			log2("wow get! ${if(isBound) owner.toString() else "no owner"} / ")
 			// cannot judge by the name
 			val scopeIndex = valueParameters.indexOfLast { it.type.constructor.declarationDescriptor == UiLibraryDescriptors.buildScope }
 			assert(scopeIndex != -1)
+			
+			val real = valueParameters.subList(0, scopeIndex)
 			val idIndex = scopeIndex + 1
 			val changedFirstIndex = idIndex + 1
+			
+			val hasDefault = real.any { param -> param.annotations.any { it.fqName == UiLibrary.DEFAULT_PARAMETER } }
 			
 			WidgetTransformationInfoForCall(
 				kind = widgetTransformationKind!!,
 				functionSymbol = this@getOrPopulateInfo,
-				realParameters = valueParameters.subList(0, scopeIndex - 1).map { it.symbol },
+				realParameters = real.map { it.symbol },
 				buildScopeParameter = valueParameters[scopeIndex].symbol,
 				idParameter = valueParameters[idIndex].symbol,
-				changedParameters = valueParameters.drop(changedFirstIndex).map { it.symbol },
-				defaultParameter = TODO()
-			)
+				changedParameters = valueParameters.drop(changedFirstIndex).let { if(hasDefault) it.dropLast(1) else it }.map { it.symbol },
+				defaultParameter = if(hasDefault) valueParameters.last().symbol else null,
+			).also {
+				it.dirty = TODO()
+			}
+		}*/
+	
+	private fun IrType.defaultValue(): IrExpression {
+		val classSymbol = classOrNull?.tryBind()
+		if(this !is IrSimpleType || hasQuestionMark || classSymbol?.owner?.isInline != true)
+			return IrConstImpl.defaultValueForType(startOffset, endOffset, this)
+		
+		val klass = classSymbol.owner
+		val ctor = classSymbol.constructors.first()
+		val underlyingType = InlineClassAbi.getUnderlyingType(klass)
+		
+		// TODO(lmr): We should not be calling the constructor here, but this seems like a
+		//  reasonable interim solution. We should figure out how to get access to the unsafe
+		//  coerce and use that instead if possible.
+		return IrConstructorCallImpl(
+			startOffset,
+			endOffset,
+			this,
+			ctor,
+			typeArgumentsCount = 0,
+			constructorTypeArgumentsCount = 0,
+			valueArgumentsCount = 1,
+			origin = null
+		).also {
+			it.putValueArgument(0, underlyingType.defaultValue())
 		}
+	}
 }
 
 

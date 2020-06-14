@@ -193,8 +193,8 @@ fun logStream(color: String) = object : LogStream {
 	}
 }
 
-fun logIndent(block: () -> Unit) {
-	block()
+inline fun logIndent(block: () -> Unit) {
+	LogConfigLocal(logConfig.let { it.copy(indents = it.indents!! + 1, isIndentFixed = true) }, block)
 }
 
 inline fun <T> T.withLog(): T {

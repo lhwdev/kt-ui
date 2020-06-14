@@ -9,15 +9,12 @@ import org.jetbrains.kotlin.ir.builders.declarations.addValueParameter
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.*
 import org.jetbrains.kotlin.ir.expressions.IrCall
-import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
 import org.jetbrains.kotlin.ir.expressions.IrMemberAccessExpression
 import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.util.*
-import org.jetbrains.kotlin.psi2ir.findFirstFunction
 import org.jetbrains.kotlin.types.KotlinType
 
 
@@ -28,7 +25,6 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 	private val typeTranslator: TypeTranslator,
 	symbolRenamer: SymbolRenamer = SymbolRenamer.DEFAULT
 ) : DeepCopyIrTreeWithSymbols(symbolRemapper, typeRemapper, symbolRenamer) {
-	
 	override fun visitClass(declaration: IrClass): IrClass {
 		return super.visitClass(declaration).also { it.copyMetadataFrom(declaration) }
 	}
@@ -55,58 +51,17 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 	}
 	
 	override fun visitFile(declaration: IrFile): IrFile {
-//		val srcManager = context.psiSourceManager
-//		val fileEntry = srcManager.getFileEntry(declaration) as? PsiSourceManager.PsiFileEntry
 		return super.visitFile(declaration).also {
-//			if(fileEntry != null) {
-//				srcManager.putFileEntry(it, fileEntry)
-//			}
 			if(it is IrFileImpl) {
 				it.metadata = declaration.metadata
 			}
 		}
 	}
 	
-	override fun visitConstructorCall(expression: IrConstructorCall): IrConstructorCall {
-		if(!expression.symbol.isBound) return super.visitConstructorCall(expression) // TODO: temporary 2
-		val ownerFn = expression.symbol.owner as? IrConstructor
-		// If we are calling an external constructor, we want to "remap" the types of its signature
-		// as well, since if it they are @Widget it will have its unmodified signature. These
-		// types won't be traversed by default by the DeepCopyIrTreeWithSymbols so we have to
-		// do it ourselves here.
-		if(
-			ownerFn != null &&
-			ownerFn.origin == IrDeclarationOrigin.IR_EXTERNAL_DECLARATION_STUB
-		) {
-			symbolRemapper.visitConstructor(ownerFn)
-			val newFn = super.visitConstructor(ownerFn).also {
-				it.parent = ownerFn.parent
-				it.patchDeclarationParents(it.parent)
-			}
-			val newCallee = symbolRemapper.getReferencedConstructor(newFn.symbol)
-			
-			return IrConstructorCallImpl(
-				expression.startOffset, expression.endOffset,
-				expression.type.remapType(),
-				newCallee,
-				expression.typeArgumentsCount,
-				expression.constructorTypeArgumentsCount,
-				expression.valueArgumentsCount,
-				mapStatementOrigin(expression.origin)
-			).apply {
-				copyRemappedTypeArgumentsFrom(expression)
-				transformValueArguments(expression)
-			}.copyAttributes(expression)
-		}
-		return super.visitConstructorCall(expression)
-	}
-	
 	override fun visitCall(expression: IrCall): IrCall {
-		if(!expression.symbol.isBound) return super.visitCall(expression) // TODO: temporary 2
-		
+		expression.symbol.tryBind()
 		val ownerFn = expression.symbol.owner as? IrSimpleFunction
 		val containingClass = expression.symbol.descriptor.containingDeclaration as? ClassDescriptor
-		
 		// Any virtual calls on widget functions we want to make sure we update the call to
 		// the right function base class (of n+1 arity). The most often virtual call to make on
 		// a function instance is `invoke`, which we *already* do in the ComposeParamTransformer.
@@ -120,13 +75,12 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 			expression.dispatchReceiver?.type?.isWidget() == true
 		) {
 			val typeArguments = containingClass.defaultType.arguments
-			val newFnClass = context.symbols.externalSymbolTable
-				.referenceClass(context.builtIns.getFunction(typeArguments.size))
+			val newFnClass = context.symbolTable.referenceClass(context.builtIns
+				.getFunction(typeArguments.size))
 			val newDescriptor = newFnClass
 				.descriptor
 				.unsubstitutedMemberScope
 				.findFirstFunction(ownerFn.name.identifier) { true }
-			
 			var newFn: IrSimpleFunction = IrFunctionImpl(
 				ownerFn.startOffset,
 				ownerFn.endOffset,
@@ -136,6 +90,7 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 			)
 			symbolRemapper.visitSimpleFunction(newFn)
 			newFn = super.visitSimpleFunction(newFn).also { fn ->
+				newFnClass.tryBind()
 				fn.parent = newFnClass.owner
 				fn.overriddenSymbols = ownerFn.overriddenSymbols
 				fn.dispatchReceiverParameter = ownerFn.dispatchReceiverParameter
@@ -146,34 +101,48 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 				fn.patchDeclarationParents(fn.parent)
 				assert(fn.body == null) { "expected body to be null" }
 			}
-			
 			val newCallee = symbolRemapper.getReferencedSimpleFunction(newFn.symbol)
 			return shallowCopyCall(expression, newCallee).apply {
 				copyRemappedTypeArgumentsFrom(expression)
 				transformValueArguments(expression)
 			}
 		}
-		
-		// If we are calling an external function, we want to "remap" the types of its signature
+		/*// If we are calling an external function, we want to "remap" the types of its signature
 		// as well, since if it is @Widget it will have its unmodified signature. These
 		// functions won't be traversed by default by the DeepCopyIrTreeWithSymbols so we have to
-		// do it ourselves here.
+		// do it here.
+		//
+		// When an external declaration for a property getter/setter is transformed, we need to
+		// also transform the corresponding property so that we maintain the relationship
+		// `getterFun.correspondingPropertySymbol.owner.getter == getterFun`. If we do not
+		// maintain this relationship inline class getters will be incorrectly compiled.
 		if(
 			ownerFn != null &&
 			ownerFn.origin == IrDeclarationOrigin.IR_EXTERNAL_DECLARATION_STUB
 		) {
-			symbolRemapper.visitSimpleFunction(ownerFn)
-			val newFn = super.visitSimpleFunction(ownerFn).also {
-				it.parent = ownerFn.parent
-				it.correspondingPropertySymbol = ownerFn.correspondingPropertySymbol
-				it.patchDeclarationParents(it.parent)
+			if(ownerFn.correspondingPropertySymbol != null) {
+				val property = ownerFn.correspondingPropertySymbol!!.owner
+				symbolRemapper.visitProperty(property)
+				super.visitProperty(property).also {
+					it.getter?.correspondingPropertySymbol = it.symbol
+					it.setter?.correspondingPropertySymbol = it.symbol
+					it.parent = ownerFn.parent
+					it.patchDeclarationParents(it.parent)
+				}
+			} else {
+				symbolRemapper.visitSimpleFunction(ownerFn)
+				super.visitSimpleFunction(ownerFn).also {
+					it.parent = ownerFn.parent
+					it.correspondingPropertySymbol = ownerFn.correspondingPropertySymbol
+					it.patchDeclarationParents(it.parent)
+				}
 			}
-			val newCallee = symbolRemapper.getReferencedSimpleFunction(newFn.symbol)
+			val newCallee = symbolRemapper.getReferencedSimpleFunction(ownerFn.symbol)
 			return shallowCopyCall(expression, newCallee).apply {
 				copyRemappedTypeArgumentsFrom(expression)
 				transformValueArguments(expression)
 			}
-		}
+		}*/
 		return super.visitCall(expression)
 	}
 	
@@ -228,7 +197,6 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 	
 	/* copied verbatim from DeepCopyIrTreeWithSymbols */
 	private fun mapStatementOrigin(origin: IrStatementOrigin?) = origin
-	
 	private fun IrElement.copyMetadataFrom(owner: IrMetadataSourceOwner) {
 		when(this) {
 			is IrPropertyImpl -> metadata = owner.metadata
@@ -237,5 +205,10 @@ class DeepCopyIrTreeWithSymbolsPreservingMetadata(
 		}
 	}
 	
+	private fun IrType.isWidget(): Boolean {
+		return annotations.hasAnnotation(UiLibrary.WIDGET)
+	}
+	
 	private fun KotlinType.toIrType(): IrType = typeTranslator.translateType(this)
 }
+

@@ -1,9 +1,11 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.lhwdev.ktui
 
 
 class BuildScope {
 	// entry point from the plugin
-	fun start(id: Int) {
+	fun start(locationId: Int) {
 		TODO()
 	}
 	
@@ -12,12 +14,33 @@ class BuildScope {
 		TODO()
 	}
 	
+	// entry point from the plugin
+	fun startReplaceableGroup(locationId: Int, groupId: Int) {
+		TODO()
+	}
+	
+	// entry point from the plugin
+	fun endReplaceableGroup() {
+		TODO()
+	}
+	
+	// entry point from the plugin
+	fun startRemovableGroup(locationId: Int) {
+		TODO()
+	}
+	
+	// entry point from the plugin
+	fun endRemovableGroup() {
+		TODO()
+	}
+	
+	// entry point from the plugin
 	fun end(restartBlock: (scope: BuildScope) -> Unit) {
 		TODO()
 	}
 	
 	// entry point from the plugin
-	fun startExpr(id: Int) {
+	fun startExpr(locationId: Int) {
 		TODO()
 	}
 	
@@ -26,6 +49,7 @@ class BuildScope {
 		TODO()
 	}
 	
+	// entry point from the plugin
 	fun isChanged(param: Any?): Boolean {
 		TODO()
 	}

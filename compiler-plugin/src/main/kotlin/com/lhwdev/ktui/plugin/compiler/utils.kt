@@ -24,7 +24,6 @@ import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.*
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.psi2ir.findFirstFunction
 import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
 import org.jetbrains.kotlin.serialization.deserialization.descriptors.DescriptorWithContainerSource
 import org.jetbrains.kotlin.types.TypeProjectionImpl
@@ -43,6 +42,7 @@ object Global {
 }
 
 
+inline val moduleFragment get() = Global.moduleFragment
 inline val module get() = Global.module
 inline val irScope get() = Global.scope
 inline val context get() = Global.pluginContext
@@ -53,6 +53,7 @@ enum class WidgetTransformationKind(val isSkippable: Boolean, val isRestartable:
 	inlineWidget(true, false, true),
 	widget(true, true, false),
 	nonSkippableWidget(false, false, false),
+	nonSkippableWidgetWithReturn(false, false, false),
 	innerWidget(false, false, false) // lambda, function literal, nested function etc.
 }
 
@@ -234,7 +235,7 @@ fun IrBuilderScope.irRun(
 
 fun IrExpression.asLambdaFunction(): IrSimpleFunction? = when {
 	this is IrFunctionExpression -> function
-	this is IrBlock && origin == IrStatementOrigin.LAMBDA -> TODO()
+	this is IrBlock && origin == IrStatementOrigin.LAMBDA -> statements.first() as IrSimpleFunction
 	else -> null
 }
 

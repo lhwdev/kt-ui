@@ -50,25 +50,20 @@ private fun Project.configureKotlinMultiplatform() {
 			implementation(kotlin("stdlib-common"))
 			
 			// coroutine - don't force users to use it
-			compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutine")
+			compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
 		}
 		
 		if(isAndroid) {
 			// TODO: split into jvmMain & androidMain after this is solved
+			// TODO: added in v1.4-M2, migrate
 			// https://youtrack.jetbrains.com/issue/KT-27801
 			// jvmMain {
 			androidMain {
 				implementation(kotlin("stdlib-jdk8"))
-				
-				// coroutine
-				compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
 			}
 			
 			// jvmTest {
 			androidTest {
-				// include coroutine due to compilation errors
-				implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
-				
 				implementation(kotlin("test-junit"))
 				
 				// mockk
@@ -80,19 +75,19 @@ private fun Project.configureKotlinMultiplatform() {
 
 private fun Project.configureKotlinJvm() {
 	dependencies {
-			"implementation"(kotlin("stdlib-jdk8"))
-			
-			// coroutine
-			"compileOnly"("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
+		"implementation"(kotlin("stdlib-jdk8"))
+		
+		// coroutine
+		"compileOnly"("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
 		
 		
-			// include coroutine due to compilation errors
-			"testImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
-			
-			"testImplementation"(kotlin("test-junit"))
-			
-			// mockk
-			"testImplementation"("io.mockk:mockk:1.9.3")
+		// include coroutine due to compilation errors
+		"testImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine")
+		
+		"testImplementation"(kotlin("test-junit"))
+		
+		// mockk
+		"testImplementation"("io.mockk:mockk:1.9.3")
 		
 	}
 }

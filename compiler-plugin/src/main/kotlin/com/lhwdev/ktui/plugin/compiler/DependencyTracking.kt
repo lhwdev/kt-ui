@@ -103,6 +103,15 @@ class WidgetStaticObserver : IrElementVisitor<DependType, Nothing?> {
 		if((symbol.ownerOrNull?.isFinal == true) && receiver?.isStatic() != false) DependType.static else DependType.none
 	}
 	
+	override fun visitFunctionReference(expression: IrFunctionReference, data: Nothing?) =
+		DependType.static
+	
+	override fun visitClassReference(expression: IrClassReference, data: Nothing?) =
+		DependType.static
+	
+	override fun visitBlock(expression: IrBlock, data: Nothing?) =
+		expression.statements.fold(DependType.static) { acc, statement -> acc and statement.dependType() }
+	
 	override fun visitCall(
 		expression: IrCall, data: Nothing?
 	) = with(expression.symbol.descriptor) {

@@ -58,7 +58,7 @@ class WidgetDeclarationTransformer : UiTransformerBase() {
 //	}
 
 //	fun nearestScope(): IrValueParameter {
-//		declarationStack.reversed().forEach {
+//		declarationStack.asReversed().forEach {
 //			if(it is IrFunction) {
 //				val param = it.valueParameters.lastOrNull()
 //				if(param != null && param.isScopeParam()) {

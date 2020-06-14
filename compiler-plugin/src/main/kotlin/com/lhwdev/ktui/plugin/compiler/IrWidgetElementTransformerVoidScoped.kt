@@ -6,6 +6,8 @@ import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrSymbolOwner
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstance
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 
 
 sealed class WidgetOrScope<T : IrElement>(override val irElement: T, override val scope: Scope) : ElementScope<T>
@@ -20,8 +22,8 @@ abstract class IrWidgetElementTransformerVoidScoped : IrElementTransformerVoidSc
 		(declaration as? IrFunction)?.widgetInfoMarker?.let { WidgetFunctionScope(it, declaration, Scope(declaration.symbol)) }
 			?: NormalScope(declaration, Scope(declaration.symbol))
 	
-	val isInWidgetScope get() = currentScope is WidgetFunctionScope
+	val isInWidgetScope get() = currentFunction is WidgetFunctionScope
 	
-	val widgetScope get() = currentScope as WidgetFunctionScope
-	val widgetScopeOrNull get() = currentScope as? WidgetFunctionScope
+	val widgetScope get() = scopeStack.asReversed().firstIsInstance<WidgetFunctionScope>() // TODO: nested function: how to?
+	val widgetScopeOrNull get() = scopeStack.asReversed().firstIsInstanceOrNull<WidgetFunctionScope>()
 }

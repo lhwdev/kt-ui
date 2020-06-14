@@ -68,11 +68,11 @@ class Test {
 				val hostClasspaths = getHostClasspaths()
 				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib.jar",
 //					Regex("(kotlin-stdlib|kotlin-runtime)(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
-					Regex("kotlin-stdlib-1.4-M1.jar")
+					Regex("kotlin-stdlib-1.4-M2.jar")
 				)!!)
 				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib-jdk.jar",
 //					Regex("kotlin-stdlib-jdk[0-9]+(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
-					Regex("kotlin-stdlib-jdk8-1.4-M1.jar")
+					Regex("kotlin-stdlib-jdk8-1.4-M2.jar")
 				)!!)
 				add(File("C:\\Users\\LHW\\AppData\\Local\\Android\\Sdk\\platforms\\android-29\\android.jar"))
 				
@@ -100,6 +100,9 @@ class Test {
 		
 		if(has) throw object : IllegalStateException("Compilation exited with any error(s)") {
 			override fun fillInStackTrace() = this
+		}
+		else {
+			logColor("Compilation successful! $DEST", ConsoleColors.GREEN_BRIGHT)
 		}
 //		val result = KotlinCompilation().apply {
 //			sources = listOf(kotlinSource)

@@ -37,7 +37,7 @@ fun IrElementScope.stateOf(target: IrExpression, parameters: List<IrValueParamet
 		val index = parameters.indexOf(aDependency)
 		if(index != -1) {
 			val (varIndex, bitIndex) = indexesForParameter(index + 1)
-			return irShiftBits(irGet(dirtyList[varIndex]), shifts - bitIndex)
+			return irAnd(irShiftBits(irGet(dirtyList[varIndex]), shifts - bitIndex), irInt(0b11))
 		}
 	}
 	

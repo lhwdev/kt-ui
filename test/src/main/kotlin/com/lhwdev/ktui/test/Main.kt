@@ -5,6 +5,8 @@ package com.lhwdev.ktui.test
 import com.lhwdev.ktui.Widget
 import com.lhwdev.ktui.nextId
 
+class DelegationTest(a: String) : CharSequence by a
+
 
 /* TODO: deprecate @InlineWidget and use inline keyword to detect? Maybe non-inline @InlineWidget fun?
  *  - no, its name is 'Inline' widget
@@ -21,7 +23,7 @@ import com.lhwdev.ktui.nextId
  */
 
 @Widget
-fun MyWidget(param: Int, paramWithDefault: Int = param + 3) {
+fun MyWidget(param: Int, paramWithDefault: Int = param + 3, defaultClass: Float = 3f, def: TheEnum = TheEnum.abc) {
 	Text("Hi", paramWithDefault)
 }
 
@@ -76,6 +78,8 @@ fun Main() {
 	
 	val b = run { 123 }
 	
+	MyWidget(123)
+	
 	@Suppress("ComplexRedundantLet")
 	"Hi".let { Text(it) } // test for calling widget in normal inline lambda
 	
@@ -83,9 +87,45 @@ fun Main() {
 //	val aha = (::Text)("11", 123)
 }
 
+class Ho<T> {
+	fun hi(a: T) {}
+}
+
+fun HT() {
+	Ho<Int>().hi(123)
+}
 
 @Widget
-fun Text(text: String, size: Int = 30) {
+fun Main2() {
+	for(i in 0 until 10) {
+		Text("$i")
+		
+		for(ii in 0..2) {
+			Abc(WidgetWithReturn())
+		}
+	}
+}
+
+@Widget
+fun Main3(a: Int, b: Int = a) {
+	
+	if(a == 3) Text("Ho")
+	if(a == 2) {
+		println("hi")
+	}
+	when(b) {
+		1 -> Text("hello")
+		2 -> Text("hi")
+	}
+	
+	if(WidgetWithReturn() > 5) {
+		Text("WOW")
+	}
+}
+
+
+@Widget
+fun Text(text: String, size: Int = 30, otherParam: Float = 1f) {
 	val id = nextId()
 	
 	Text(text, size)
@@ -102,8 +142,9 @@ fun Abc(arg: Int) {
 
 @Widget
 fun WidgetWithReturn(): Int {
-	if(aNum == 2) return 1
-	EmptyWidget()
+	if(aNum == 2)
+		EmptyWidget()
+	if(aNum == 3) return -1
 	Proxy {
 		Text("Hell'o, world!")
 	}
@@ -113,6 +154,12 @@ fun WidgetWithReturn(): Int {
 @Widget
 fun Proxy(child: @Widget () -> Unit) {
 	child()
+	
+	val num = when(aNum) {
+		1 -> WidgetWithReturn()
+		WidgetWithReturn() -> 3
+		else -> error("hah")
+	}
 }
 
 class DrawScope

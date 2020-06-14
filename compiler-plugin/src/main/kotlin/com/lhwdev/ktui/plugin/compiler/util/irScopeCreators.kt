@@ -42,6 +42,12 @@ inline fun <R> irBuilderScope(symbol: IrSymbol, block: IrElementScope.() -> R): 
 val IrElement.scope get() = IrSimpleElementScope(startOffset, endOffset)
 val IrSymbolOwner.scope get() = IrSimpleBuilderScope(startOffset, endOffset, Scope(symbol))
 
+fun <R> withElementScope(element: IrElement, block: IrElementScope.() -> R) =
+	element.scope.run(block)
+
+fun <R> withBuilderScope(element: IrSymbolOwner, block: IrBuilderScope.() -> R) =
+	element.scope.run(block)
+
 private class IrBuilderScopeWithOffset(val delegate: IrBuilderScope, override val startOffset: Int, override val endOffset: Int) : IrBuilderScope by delegate
 
 fun IrBuilderScope.offset(startOffset: Int, endOffset: Int): IrBuilderScope =

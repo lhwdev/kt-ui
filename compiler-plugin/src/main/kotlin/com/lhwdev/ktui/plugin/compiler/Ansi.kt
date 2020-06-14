@@ -26,6 +26,7 @@ object Ansi {
 	val brightWhite = AnsiItem("97") // white
 	
 	val bold = AnsiItem("1")
+	val italic = AnsiItem("3")
 	val underlined = AnsiItem("4")
 	val framed = AnsiItem("51")
 	val encircled = AnsiItem("52")

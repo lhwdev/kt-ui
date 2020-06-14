@@ -13,6 +13,8 @@ import org.jetbrains.kotlin.ir.symbols.IrPropertySymbol
 import org.jetbrains.kotlin.ir.symbols.IrScriptSymbol
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstance
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 
 
 interface ElementScope<out E : IrElement> {
@@ -97,6 +99,12 @@ abstract class IrElementTransformerVoidScoped<T : ElementScope<*>> : IrElementTr
 	
 	val currentScope get() = scopeStack.last()
 	val currentDeclarationParent get() = scopeStack.last { it.irElement is IrDeclarationParent }.irElement as IrDeclarationParent
+	
+	inline fun <reified T : ElementScope<*>> topScope() =
+		scopeStack.asReversed().firstIsInstance<T>()
+	
+	inline fun <reified T : ElementScope<*>> topScopeOrNull() =
+		scopeStack.asReversed().firstIsInstanceOrNull<T>()
 	
 	val parentScope get() = scopeStack[scopeStack.size - 2]
 	val currentFile get() = scopeStack.last { it.irElement is IrFile }.irElement as IrFile
