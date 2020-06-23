@@ -36,7 +36,9 @@ import org.jetbrains.kotlin.types.replace
 import kotlin.math.abs
 
 
-// all implementation will be try not to get the owner of the symbol, which can cause errors so far.
+// also aims to implement all statements which is available by kotlin code(like elvis operator, safe call etc.)
+
+// all implementation will be try not to get the owner of the symbol (getting it can cause errors so far).
 
 inline val IrElementScope.builtIns get() = context.builtIns
 inline val IrElementScope.irBuiltIns get() = context.irBuiltIns
@@ -245,11 +247,11 @@ fun IrElementScope.irConstructorCall(
 	origin: IrStatementOrigin? = null
 ) = irConstructorCall(callee.symbol, valueArguments, typeArguments, type, origin)
 
-inline fun IrElementScope.irCall(callee: IrFunctionSymbol, type: IrType = callee.returnType, block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
-	irCall(callee, type).apply(block)
+inline fun IrElementScope.irCall(callee: IrFunctionSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
+	irCall(callee, type, origin).apply(block)
 
-inline fun IrElementScope.irCall(callee: FunctionDescriptor, type: IrType = callee.returnType.toIrType(), block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
-	irCall(callee.symbol, type).apply(block)
+inline fun IrElementScope.irCall(callee: FunctionDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null, block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
+	irCall(callee.symbol, type, origin).apply(block)
 
 fun IrElementScope.irCall(callee: FunctionDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null): IrFunctionAccessExpression =
 	irCall(callee.symbol, type, origin)
@@ -291,11 +293,11 @@ fun IrElementScope.irCall(callee: IrFunctionSymbol, type: IrType = callee.return
 internal inline val IrFunctionSymbol.returnType
 	get() = if(isBound) owner.returnType else descriptor.returnType.toIrType()
 
-inline fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: IrType = callee.returnType.toIrType(), block: IrConstructorCall.() -> Unit): IrConstructorCall =
-	irConstructorCall(callee.symbol, type, block)
+inline fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null, block: IrConstructorCall.() -> Unit): IrConstructorCall =
+	irConstructorCall(callee.symbol, type, origin, block)
 
-inline fun IrElementScope.irConstructorCall(callee: IrConstructorSymbol, type: IrType = callee.returnType, block: IrConstructorCall.() -> Unit): IrConstructorCall =
-	irConstructorCall(callee, type).apply(block)
+inline fun IrElementScope.irConstructorCall(callee: IrConstructorSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrConstructorCall.() -> Unit): IrConstructorCall =
+	irConstructorCall(callee, type, origin).apply(block)
 
 fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null): IrConstructorCall =
 	irConstructorCall(callee.symbol, type, origin)
@@ -303,8 +305,8 @@ fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: I
 fun IrElementScope.irConstructorCall(callee: IrConstructorSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null): IrConstructorCall =
 	IrConstructorCallImpl.fromSymbolDescriptor(startOffset, endOffset, type, callee, origin)
 
-inline fun IrElementScope.irCall(callee: IrSimpleFunctionSymbol, type: IrType = callee.returnType, block: IrCall.() -> Unit): IrCall =
-	irCall(callee, type).apply(block)
+inline fun IrElementScope.irCall(callee: IrSimpleFunctionSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrCall.() -> Unit): IrCall =
+	irCall(callee, type, origin).apply(block)
 
 fun IrElementScope.irCall(
 	callee: IrSimpleFunctionSymbol,
@@ -321,6 +323,47 @@ fun IrElementScope.irDelegatingConstructorCall(callee: IrConstructor): IrDelegat
 
 fun IrElementScope.irInstanceInitializerCall(classSymbol: IrClassSymbol): IrInstanceInitializerCall =
 	IrInstanceInitializerCallImpl(startOffset, endOffset, classSymbol, classSymbol.descriptor.defaultType.toIrType())
+
+sealed class IrSafeCallReceiver(val expression: IrExpression) {
+	class Extension(expression: IrExpression) : IrSafeCallReceiver(expression)
+	class Dispatch(expression: IrExpression) : IrSafeCallReceiver(expression)
+}
+
+fun IrBuilderScope.irSafeCall(
+	callee: IrSimpleFunctionSymbol,
+	safeReceiver: IrSafeCallReceiver,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrCall.() -> Unit
+): IrExpression = irBlock(type = type, origin = IrStatementOrigin.SAFE_CALL) {
+	val receiver = irTemporary(safeReceiver.expression)
+	+irIf(type, origin = IrStatementOrigin.SAFE_CALL) {
+		irEquals(irGet(receiver), irNull()) then irNull()
+		orElse(irCall(callee, type = type, origin = origin, block = block))
+	}
+}
+
+fun IrBuilderScope.irSafeCall(
+	callee: IrSimpleFunctionSymbol,
+	valueArguments: List<IrExpression?> = emptyList(),
+	typeArguments: List<IrType?> = emptyList(),
+	safeReceiver: IrSafeCallReceiver,
+	dispatchReceiver: IrExpression? = null,
+	extensionReceiver: IrExpression? = null,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null,
+	block: (IrCall.() -> Unit)? = null
+) = irSafeCall(callee, safeReceiver, type, origin) {
+	this.dispatchReceiver = dispatchReceiver
+	this.extensionReceiver = extensionReceiver
+	valueArguments.forEachIndexed { index, argument ->
+		putValueArgument(index, argument)
+	}
+	typeArguments.forEachIndexed { index, argument ->
+		putTypeArgument(index, argument)
+	}
+	block?.invoke(this)
+}
 
 fun IrElementScope.irInvoke(
 	functionSymbol: IrSimpleFunctionSymbol,
@@ -472,11 +515,22 @@ inline class IrWhenBuilder(val expression: IrWhen) {
 inline fun IrElementScope.irWhen(type: IrType, origin: IrStatementOrigin? = IrStatementOrigin.WHEN, block: IrWhenBuilder.() -> Unit): IrWhen =
 	IrWhenBuilder(IrWhenImpl(startOffset, endOffset, type, origin)).apply(block).expression
 
-inline fun IrElementScope.irIf(type: IrType, block: IrWhenBuilder.() -> Unit): IrWhen =
-	IrWhenBuilder(IrIfThenElseImpl(startOffset, endOffset, type, IrStatementOrigin.IF)).apply(block).expression
+inline fun IrBuilderScope.irWhenSubject(
+	subject: IrExpression,
+	type: IrType,
+	subjectName: String? = null,
+	origin: IrStatementOrigin? = null,
+	block: IrWhenBuilder.(subject: IrVariable) -> Unit
+) = irBlock(type = type, origin = IrStatementOrigin.WHEN) {
+	val subjectVar = if(subjectName == null) irTemporary(subject, nameHint = "subject") else irVariable(subjectName, subject.type, initializer = subject)
+	+irWhen(type, origin) { block(subjectVar) }
+}
 
-fun IrElementScope.irIfThen(type: IrType, condition: IrExpression, then: IrExpression): IrWhen =
-	IrIfThenElseImpl(startOffset, endOffset, type, IrStatementOrigin.IF).apply {
+inline fun IrElementScope.irIf(type: IrType, origin: IrStatementOrigin? = IrStatementOrigin.IF, block: IrWhenBuilder.() -> Unit): IrWhen =
+	IrWhenBuilder(IrIfThenElseImpl(startOffset, endOffset, type, origin)).apply(block).expression
+
+fun IrElementScope.irIfThen(type: IrType, condition: IrExpression, origin: IrStatementOrigin? = IrStatementOrigin.IF, then: IrExpression): IrWhen =
+	IrIfThenElseImpl(startOffset, endOffset, type, origin).apply {
 		branches += IrBranchImpl(startOffset, endOffset, condition, then)
 	}
 
@@ -503,10 +557,10 @@ class IrWhenBuilderWithScope(val scope: IrBuilderScope, val expression: IrWhen) 
 inline fun IrBuilderScope.irIfWithScope(type: IrType, block: IrWhenBuilderWithScope.() -> Unit): IrWhen =
 	IrWhenBuilderWithScope(this, IrIfThenElseImpl(startOffset, endOffset, type, IrStatementOrigin.IF)).apply(block).expression
 
-fun IrBuilderScope.irBranch(condition: IrExpression, result: IrExpression): IrBranch =
+fun IrElementScope.irBranch(condition: IrExpression, result: IrExpression): IrBranch =
 	IrBranchImpl(startOffset, endOffset, condition, result)
 
-fun IrBuilderScope.irElseBranch(result: IrExpression): IrElseBranch =
+fun IrElementScope.irElseBranch(result: IrExpression): IrElseBranch =
 	IrElseBranchImpl(startOffset, endOffset, irTrue(), result)
 
 
@@ -618,7 +672,7 @@ fun IrElementScope.irReinterpretCast(argument: IrExpression, type: IrType) =
 open class IrBlockBuilder(
 	override val startOffset: Int,
 	override val endOffset: Int,
-	protected val resultType: IrType? = null,
+	var resultType: IrType? = null,
 	protected val origin: IrStatementOrigin? = null,
 	protected val isTransparentScope: Boolean,
 	override val scope: Scope
@@ -629,7 +683,7 @@ open class IrBlockBuilder(
 		statements += this
 	}
 	
-	private fun inferReturnType() =
+	protected fun inferReturnType() =
 		resultType ?: (statements.lastOrNull() as? IrExpression)?.type ?: irBuiltIns.unitType
 	
 	override fun build(): IrContainerExpression =
@@ -637,9 +691,12 @@ open class IrBlockBuilder(
 		else IrBlockImpl(startOffset, endOffset, inferReturnType(), origin, statements)
 }
 
-class IrReturnableBlockBuilder(startOffset: Int, endOffset: Int, resultType: IrType, origin: IrStatementOrigin? = null, scope: Scope)
-	: IrBlockBuilder(startOffset, endOffset, resultType, origin, false, scope) {
-	val returnTargetSymbol = IrReturnableBlockSymbolImpl(createAnonymousFunctionDescriptor(returnType = resultType.toKotlinType()))
+class IrReturnableBlockBuilder(
+	startOffset: Int, endOffset: Int,
+	val returnTargetSymbol: IrReturnableBlockSymbol,
+	resultType: IrType,
+	origin: IrStatementOrigin? = null
+) : IrBlockBuilder(startOffset, endOffset, resultType, origin, false, Scope(returnTargetSymbol)) {
 	
 	override fun build(): IrReturnableBlock =
 		IrReturnableBlockImpl(startOffset, endOffset, resultType!!, returnTargetSymbol, origin, statements)
@@ -652,7 +709,11 @@ inline fun IrBuilderScope.irComposite(type: IrType? = null, origin: IrStatementO
 	IrBlockBuilder(startOffset, endOffset, resultType = type, origin = origin, isTransparentScope = true, scope = scope).apply(body).build()
 
 inline fun IrBuilderScope.irReturnableBlock(type: IrType, origin: IrStatementOrigin? = null, body: IrBlockBuilder.() -> Unit) =
-	IrReturnableBlockBuilder(startOffset, endOffset, resultType = type, origin = origin, scope = scope).apply(body).build()
+	IrReturnableBlockBuilder(
+		startOffset, endOffset,
+		IrReturnableBlockSymbolImpl(createAnonymousFunctionDescriptor(returnType = type.toKotlinType())),
+		resultType = type, origin = origin
+	).apply(body).build()
 
 // Flows
 

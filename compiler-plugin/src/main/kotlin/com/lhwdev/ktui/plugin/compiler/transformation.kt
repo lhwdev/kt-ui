@@ -1,6 +1,7 @@
 package com.lhwdev.ktui.plugin.compiler
 
 import com.lhwdev.ktui.plugin.compiler.util.provideContext
+import org.jetbrains.kotlin.ir.IrElement
 
 
 private val sEmptyScope = object : UiIrPhase {
@@ -9,7 +10,7 @@ private val sEmptyScope = object : UiIrPhase {
 }
 
 
-fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit) {
+fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit): IrElement {
 	sCurrentTransformation = this
 	provideContext(pluginContext) {
 		try {
@@ -26,6 +27,7 @@ fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit) 
 			sCurrentTransformation = null
 		}
 	}
+	return target
 }
 
 private var sCurrentTransformation: UiIrContext? = null

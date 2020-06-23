@@ -27,52 +27,33 @@ import org.jetbrains.kotlin.types.replace
 import kotlin.system.measureTimeMillis
 
 
-fun WidgetTypeTransformer() =
-	uiIrPhase("WidgetTypeTransformer") { target ->
-		// should we deepcopy these all things?
-//	val symbolRemapper = DeepCopySymbolRemapper()
-//	moduleFragment.acceptChildren(symbolRemapper, null)
-//	log3((pluginContext.symbolTable.unboundClasses + pluginContext.symbolTable.unboundConstructors + pluginContext.symbolTable.unboundEnumEntries + pluginContext.symbolTable.unboundFields + pluginContext.symbolTable.unboundProperties + pluginContext.symbolTable.unboundSimpleFunctions + pluginContext.symbolTable.unboundTypeAliases + pluginContext.symbolTable.unboundTypeParameters).joinToString { it.descriptor.name.toString() })
-//	val remapper = WidgetTypeRemapper(pluginContext, symbolRemapper, pluginContext.typeTranslator, moduleFragment.descriptor.resolveTopLevelClass(BUILD_SCOPE, NoLookupLocation.FROM_BACKEND)!!)
-//	val realTransformer = DeepCopyIrTreeWithSymbolsPreservingMetadata(pluginContext, symbolRemapper, remapper, pluginContext.typeTranslator)
-//	val transformer = object : IrElementTransformerVoid() {
-//		override fun visitFile(declaration: IrFile): IrFile {
-//			declaration.transformChildrenVoid(realTransformer) // temp patch
-//			return super.visitFile(declaration)
-//		}
-//	}
-////	val transformer = DeepCopyIrTreeWithSymbols(symbolRemapper, remapper)
-//	remapper.deepCopy = transformer
-//
-//	target.transform(transformer, null)
-//	target.patchDeclarationParents()
-		
-		val symbolRemapper = DeepCopySymbolRemapper()
-		val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper)
-		measureTimeMillis { target.acceptVoid(symbolRemapper) }.withLog { "remapping symbols took $it ms" }
-		val transformer = DeepCopyIrTreeWithSymbolsPreservingMetadata(context, symbolRemapper, typeRemapper, context.typeTranslator)
-		typeRemapper.deepCopy = transformer
-		target.transform(transformer, null)
-		target.patchDeclarationParents()
-		
-		target.transformChildrenVoid(object : IrElementTransformerVoid() {
-			override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression {
-				for((index, argument) in expression.valueArguments.withIndex()) {
-					if(argument == null) continue
-					val lambda = argument.asLambdaFunction() ?: continue
-					if(lambda.widgetMarker != null)
-						expression.putValueArgument(index, when(argument) {
-							is IrFunctionExpression -> argument.scope.irFunctionExpression(argument.type.mapToWidget(), argument.function, argument.origin)
-							is IrBlock -> IrBlockImpl(argument.startOffset, argument.endOffset, argument.type.mapToWidget(), argument.origin, argument.statements)
-							else -> error("unknown type of argument $argument")
-						})
-				}
-				return super.visitFunctionAccess(expression)
+fun WidgetTypeTransformer() = uiIrPhase("WidgetTypeTransformer") {
+	val symbolRemapper = DeepCopySymbolRemapper()
+	val typeRemapper = WidgetTypeRemapper(pluginContext, symbolRemapper)
+	val transformer = DeepCopyIrTreeWithSymbolsPreservingMetadata(context, symbolRemapper, typeRemapper, context.typeTranslator)
+	measureTimeMillis { target.acceptVoid(symbolRemapper) }.withLog { "remapping symbols took $it ms" }
+	typeRemapper.deepCopy = transformer
+	target.transformChildrenVoid(transformer)
+	target.patchDeclarationParents() // necessary: if not exist, causes error like 'Parent not initialized: org.jetbrains.kotlin.ir.declarations.impl.IrConstructorImpl@34e0f4d3'
+	
+	target.transformChildrenVoid(object : IrElementTransformerVoid() {
+		override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression {
+			for((index, argument) in expression.valueArguments.withIndex()) {
+				if(argument == null) continue
+				val lambda = argument.asLambdaFunction() ?: continue
+				if(lambda.widgetMarker != null)
+					expression.putValueArgument(index, when(argument) {
+						is IrFunctionExpression -> argument.scope.irFunctionExpression(argument.type.mapToWidget(), argument.function, argument.origin)
+						is IrBlock -> IrBlockImpl(argument.startOffset, argument.endOffset, argument.type.mapToWidget(), argument.origin, argument.statements)
+						else -> error("unknown type of argument $argument")
+					})
 			}
-		})
-	}
+			return super.visitFunctionAccess(expression)
+		}
+	})
+}
 
-private fun IrType.mapToWidget() = (replaceAnnotations(
+fun IrType.mapToWidget() = (replaceAnnotations(
 	annotations + IrConstructorCallImpl(
 		UNDEFINED_OFFSET, UNDEFINED_OFFSET,
 		UiLibraryDescriptors.widget.defaultType.toIrType(), UiLibraryDescriptors.widget.constructors.single().symbol,

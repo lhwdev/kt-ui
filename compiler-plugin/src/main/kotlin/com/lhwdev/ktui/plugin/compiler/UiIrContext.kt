@@ -5,4 +5,4 @@ import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
 
 
-data class UiIrContext(val pluginContext: IrPluginContext, val moduleFragment: IrModuleFragment, val target: IrElement)
+data class UiIrContext(val pluginContext: IrPluginContext, val moduleFragment: IrModuleFragment, var target: IrElement)

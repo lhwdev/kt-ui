@@ -9,16 +9,13 @@ import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.ir.builders.declarations.IrValueParameterBuilder
 import org.jetbrains.kotlin.ir.builders.declarations.UNDEFINED_PARAMETER_INDEX
 import org.jetbrains.kotlin.ir.builders.declarations.build
-import org.jetbrains.kotlin.ir.declarations.IrFunction
-import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
-import org.jetbrains.kotlin.ir.declarations.IrSymbolOwner
+import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.declarations.impl.IrConstructorImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrFunctionImpl
-import org.jetbrains.kotlin.ir.descriptors.WrappedFunctionDescriptorWithContainerSource
-import org.jetbrains.kotlin.ir.descriptors.WrappedPropertyGetterDescriptor
-import org.jetbrains.kotlin.ir.descriptors.WrappedPropertySetterDescriptor
-import org.jetbrains.kotlin.ir.descriptors.WrappedSimpleFunctionDescriptor
+import org.jetbrains.kotlin.ir.descriptors.*
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.*
+import org.jetbrains.kotlin.ir.symbols.impl.IrConstructorSymbolImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.*
@@ -59,6 +56,7 @@ enum class WidgetTransformationKind(val isSkippable: Boolean, val isRestartable:
 
 
 fun IrType.isWidget() = hasAnnotation(UiLibrary.WIDGET)
+fun IrAnnotationContainer.isWidget() = hasAnnotation(UiLibrary.WIDGET)
 fun Annotated.isWidget() = annotations.hasAnnotation(UiLibrary.WIDGET)
 fun IrFunction.isWidget() = hasAnnotation(UiLibrary.WIDGET)
 fun List<AnnotationDescriptor>.isWidget() = any { it.fqName == UiLibrary.WIDGET }
@@ -88,8 +86,8 @@ val IrFunction.widgetTransformationKind
 			}
 		} -> WidgetTransformationKind.inlineWidget
 		
+		visibility == Visibilities.LOCAL || name.asString() == "<anonymous>" -> WidgetTransformationKind.innerWidget
 		returnType.isUnit() -> WidgetTransformationKind.widget
-		visibility == Visibilities.LOCAL -> WidgetTransformationKind.innerWidget
 		else -> WidgetTransformationKind.nonSkippableWidget
 	}
 	else null
@@ -239,6 +237,21 @@ fun IrExpression.asLambdaFunction(): IrSimpleFunction? = when {
 	else -> null
 }
 
+fun IrType.replaceWithStarProjections() =
+	if(this is IrSimpleType) IrSimpleTypeImpl(originalKotlinType, classifier, hasQuestionMark,
+		arguments.map { IrStarProjectionImpl }, annotations, abbreviation)
+	else this
+
+fun IrType.replace(newArguments: List<IrTypeArgument>, newAnnotations: List<IrConstructorCall> = annotations): IrType =
+	when(this) {
+		is IrSimpleType -> IrSimpleTypeImpl(originalKotlinType, classifier, hasQuestionMark, newArguments, newAnnotations, abbreviation)
+		is IrErrorType -> IrErrorTypeImpl(originalKotlinType, newAnnotations, (this as? IrTypeBase)?.variance
+			?: Variance.INVARIANT)
+		is IrDynamicType -> IrDynamicTypeImpl(originalKotlinType, newAnnotations, (this as? IrTypeBase)?.variance
+			?: Variance.INVARIANT)
+		else -> error("unexpected type")
+	}
+
 fun IrType.replaceAnnotations(newAnnotations: List<IrConstructorCall>): IrType = when(this) {
 	is IrSimpleType -> IrSimpleTypeImpl(originalKotlinType, classifier, hasQuestionMark, arguments, newAnnotations, abbreviation)
 	is IrErrorType -> IrErrorTypeImpl(originalKotlinType, newAnnotations, (this as? IrTypeBase)?.variance
@@ -314,11 +327,16 @@ private fun copyDescriptor(descriptor: FunctionDescriptor) = when(descriptor) {
 		WrappedSimpleFunctionDescriptor(sourceElement = descriptor.source)
 }
 
-fun IrFunction.copyLight(
+fun IrFunction.copyLight(): IrFunction = when(this) {
+	is IrSimpleFunction -> copyLight()
+	is IrConstructor -> copyLight()
+	else -> error("??")
+}
+
+fun IrSimpleFunction.copyLight(
 	isInline: Boolean = this.isInline,
 	modality: Modality = descriptor.modality
 ): IrSimpleFunction {
-	// TODO(lmr): use deepCopy instead?
 	val descriptor = descriptor
 	val newDescriptor = copyDescriptor(descriptor)
 	
@@ -340,27 +358,40 @@ fun IrFunction.copyLight(
 		isFakeOverride = isFakeOverride
 	).also { fn ->
 		newDescriptor.bind(fn)
-		if(this is IrSimpleFunction) {
-			fn.correspondingPropertySymbol = correspondingPropertySymbol
-		}
+		fn.correspondingPropertySymbol = correspondingPropertySymbol
 		fn.parent = parent
 		fn.valueParameters = valueParameters
 		fn.typeParameters = typeParameters
-//		fn.copyParameterDeclarationsFrom(this)
 		fn.dispatchReceiverParameter = dispatchReceiverParameter
 		fn.extensionReceiverParameter = extensionReceiverParameter
-//		valueParameters.mapTo(fn.valueParameters) { p ->
-//			// Composable lambdas will always have `IrGet`s of all of their parameters
-//			// generated, since they are passed into the restart lambda. This causes an
-//			// interesting corner case with "anonymous parameters" of composable functions.
-//			// If a parameter is anonymous (using the name `_`) in user code, you can usually
-//			// make the assumption that it is never used, but this is technically not the
-//			// case in composable lambdas. The synthetic name that kotlin generates for
-//			// anonymous parameters has an issue where it is not safe to dex, so we sanitize
-//			// the names here to ensure that dex is always safe.
-////			p.copyTo(fn, name = dexSafeName(p.name))
-////			p.copyTo(fn)
-//		}
+		fn.annotations = annotations
+		fn.body = body
+	}
+}
+
+fun IrConstructor.copyLight(): IrConstructor {
+	val descriptor = descriptor
+	val newDescriptor = WrappedClassConstructorDescriptor(descriptor.annotations, descriptor.source)
+	
+	return IrConstructorImpl(
+		startOffset = startOffset,
+		endOffset = endOffset,
+		origin = origin,
+		symbol = IrConstructorSymbolImpl(newDescriptor),
+		name = name,
+		visibility = visibility,
+		returnType = returnType,
+		isInline = isInline,
+		isExternal = isExternal,
+		isPrimary = isPrimary,
+		isExpect = isExpect
+	).also { fn ->
+		newDescriptor.bind(fn)
+		fn.parent = parent
+		fn.valueParameters = valueParameters
+		fn.typeParameters = typeParameters
+		fn.dispatchReceiverParameter = dispatchReceiverParameter
+		fn.extensionReceiverParameter = extensionReceiverParameter
 		fn.annotations = annotations
 		fn.body = body
 	}

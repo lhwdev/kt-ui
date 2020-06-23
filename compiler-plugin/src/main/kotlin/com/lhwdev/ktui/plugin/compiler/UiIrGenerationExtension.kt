@@ -44,9 +44,8 @@ class UiIrGenerationExtension : IrGenerationExtension {
 		logColor("Hello from UiIrGenerationExtension", ConsoleColors.GREEN)
 		log("")
 		
-		val target = moduleFragment
 		
-		UiIrContext(pluginContext, moduleFragment, target).transformations("main") {
+		UiIrContext(pluginContext, moduleFragment, moduleFragment).transformations("main") {
 			initUnboundSymbolUtils(pluginContext)
 			
 			measureTimeMillis {
@@ -55,12 +54,19 @@ class UiIrGenerationExtension : IrGenerationExtension {
 
 //			log2(target.dumpSrc())
 //		val target = moduleFragment.files.withLog { it.joinToString { files -> files.name } }.find { it.name == "Main.kt" }!!
-			target.deepCopyWithSymbols().logDumpColored()
+//			target.deepCopyWithSymbols().logDumpColored()
 			
+			+WidgetTypeTransformer()
 			+WidgetMarkerResolver()
-			log4(uiTrace.getKeys(UiWritableSlices.WIDGET_KIND).joinToString { it.name.toString() })
 			+WidgetFunctionParamTransformer()
 			+WidgetCallTransformer()
+			
+			
+			uiIrPhase("optimizations") {
+//				+WidgetPureStateMarker()
+			}
+			target.logSrcColored(SourcePrintConfig.debug)
+			
 			+WidgetFunctionBodyTransformer()
 //			target.logSrcColored(debug = true)
 			+UiIntrinsicsTransformer()
@@ -69,7 +75,7 @@ class UiIrGenerationExtension : IrGenerationExtension {
 			// dump() in kotlin compiler library has the same error); so copy it then dump
 			target.deepCopyWithSymbols().logDumpColored()
 			log("")
-			target.logSrcColored(debug = true)
+			target.logSrcColored(SourcePrintConfig.debug)
 			bindAll() // because the exception 'Unbound type parameters are forbidden'
 		}
 	}

@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
 import org.jetbrains.kotlin.ir.descriptors.IrSimpleBuiltinOperatorDescriptorImpl
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrIfThenElseImpl
@@ -25,23 +26,28 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtLambdaArgument
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
-import org.jetbrains.kotlin.types.typeUtil.isSubtypeOf
-import org.jetbrains.kotlin.types.typeUtil.replaceArgumentsWithStarProjections
 import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.Stack
 
 
-fun IrElement.dumpSrcColored(allowSpecialMarker: Boolean = true, debug: Boolean = false) =
+private fun IrType.checkSubtypeOf(parent: IrType, irBuiltins: IrBuiltIns) =
+	if(this is IrSimpleType && parent is IrSimpleType) {
+		if(classifier is IrClassSymbol && parent.classifier is IrClassSymbol) replaceWithStarProjections().isSubtypeOf(parent.replaceWithStarProjections(), irBuiltins)
+		else true // TODO: check this case
+	} else this == parent
+
+
+fun IrElement.dumpSrcColored(config: SourcePrintConfig = SourcePrintConfig.default) =
 	buildString {
 		patchDeclarationParents()
-		acceptVoid(IrSourcePrinterVisitor(this, allowSpecialMarker, debug))
+		acceptVoid(IrAllSourcePrinterVisitor(this, config))
 	}
 
-fun IrElement.logSrcColored(allowSpecialMarker: Boolean = true, debug: Boolean = false) {
+fun IrElement.logSrcColored(config: SourcePrintConfig = SourcePrintConfig.default) {
 	patchDeclarationParents()
 	fixIndents {
-		IrSourcePrinterVisitor(object : Appendable {
+		IrAllSourcePrinterVisitor(object : Appendable {
 			override fun append(csq: CharSequence): Appendable {
 				logInternalWithoutNewline(csq.toString(), color = "")
 				return this
@@ -51,12 +57,56 @@ fun IrElement.logSrcColored(allowSpecialMarker: Boolean = true, debug: Boolean =
 				append(csq.substring(start, end))
 			
 			override fun append(c: Char) = append("$c")
-		}, allowSpecialMarker, debug).let { acceptVoid(it) }
+		}, config).let { acceptVoid(it) }
 		logln()
 	}
 }
 
+fun IrElement.dumpSrcHeadColored(config: SourcePrintConfig = SourcePrintConfig.default) =
+	buildString {
+		patchDeclarationParents()
+		acceptVoid(IrDeclarationHeadPrinterVisitor(this, config))
+	}
+
+fun IrElement.logSrcHeadColored(config: SourcePrintConfig = SourcePrintConfig.default) {
+	patchDeclarationParents()
+	fixIndents {
+		IrDeclarationHeadPrinterVisitor(object : Appendable {
+			override fun append(csq: CharSequence): Appendable {
+				logInternalWithoutNewline(csq.toString(), color = "")
+				return this
+			}
+			
+			override fun append(csq: CharSequence, start: Int, end: Int) =
+				append(csq.substring(start, end))
+			
+			override fun append(c: Char) = append("$c")
+		}, config).let { acceptVoid(it) }
+		logln()
+	}
+}
+
+fun IrType.dumpColored(config: SourcePrintConfig = SourcePrintConfig.default) = buildString {
+	IrAllSourcePrinterVisitor(this, config).apply {
+		print()
+	}
+}
+
 fun String.decapitalizeFirst() = first().toLowerCase() + drop(1)
+
+
+val sDefaultFilterOrigins = listOf(IrDeclarationOrigin.FAKE_OVERRIDE)
+
+data class SourcePrintConfig(
+	val allowSpecialMarker: Boolean = true,
+	val debug: Boolean = false,
+	val originsToFilter: List<IrDeclarationOrigin> = sDefaultFilterOrigins
+) {
+	companion object {
+		val default = SourcePrintConfig()
+		val debug = SourcePrintConfig(debug = true)
+	}
+}
 
 
 private class Printer(val out: Appendable, val indentUnit: CharSequence) {
@@ -116,14 +166,39 @@ inline fun <T : Any> merge(a: T?, b: T?, merger: (T, T) -> T): T? = when {
 }
 
 
+private class IrAllSourcePrinterVisitor(out: Appendable, config: SourcePrintConfig)
+	: IrSourcePrinterVisitor(out, config) {
+	override val renderContent: Boolean get() = true
+	override val renderBody: Boolean get() = true
+}
+
+private class IrDeclarationHeadPrinterVisitor(out: Appendable, config: SourcePrintConfig)
+	: IrSourcePrinterVisitor(out, config) {
+	override val renderContent: Boolean get() = false
+	override val renderBody: Boolean get() = false
+	
+	override fun visitBlockBody(body: IrBlockBody) {
+	}
+	
+	// showing default value on function declaration etc. is good?? removing this may break some codes.. -> handle
+//	override fun visitExpressionBody(body: IrExpressionBody) {
+//		super.visitExpressionBody(body)
+//	}
+}
+
+
 /**
  * Log the ir tree in the form of the Kotlin code.
  * Note that the result should generally be used for the sake of debugging.
  * If you enable debug flag on the constructor, then it prints some useful information and code
- * errors(not all the errors, only some errors).
+ * errors(not all the errors, only some errors so far).
  */
-private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Boolean = true, val debug: Boolean = false) : IrElementVisitorVoidWithContext() {
+private abstract class IrSourcePrinterVisitor(out: Appendable, val config: SourcePrintConfig) : IrElementVisitorVoidWithContext() {
 	private val printer = Printer(out, "\t")
+	
+	val debug get() = config.debug
+	val allowSpecialMarker get() = config.allowSpecialMarker
+	
 	private var lastBlock = false
 	private var currentIndex = 0
 	
@@ -131,14 +206,14 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	
 	private var lastSpace = SpaceType.none
 	
-	private val labels = IdentityHashMap<IrReturnTargetSymbol, String>()
+	val labels = IdentityHashMap<IrReturnTargetSymbol, String>()
 	
 	
-	class Grouping(val selfType: Type, var inherit: GroupingInherit) {
+	class Group(val selfType: Type, var inherit: GroupInherit) {
 		val localOverrides by lazy { Stack<Pair<Type, Type>>() }
 	}
 	
-	class GroupingInherit(
+	class GroupInherit(
 		val isAnnotationCall: Boolean = false,
 		val isNotCall: Boolean = false,
 		val overrideAllType: Type? = null,
@@ -146,7 +221,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		val localOverrides: List<Pair<Type, Type>>? = null,
 		val printIntAsBinary: Boolean = false
 	) {
-		fun merge(other: GroupingInherit) = GroupingInherit(
+		fun merge(other: GroupInherit) = GroupInherit(
 			isAnnotationCall = other.isAnnotationCall || isAnnotationCall,
 			isNotCall = other.isNotCall || isNotCall,
 			overrideAllType = other.overrideAllType ?: overrideAllType,
@@ -157,22 +232,22 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	}
 	
 	
-	private val groupingStack = Stack<Grouping>().apply {
-		push(Grouping(Type.none, GroupingInherit()))
+	val groupStack = Stack<Group>().apply {
+		push(Group(Type.none, GroupInherit()))
 	}
-	private inline val currentGroup get() = groupingStack.peek()
-	private inline var currentInherit
+	inline val currentGroup get() = groupStack.peek()
+	inline var currentInherit
 		get() = currentGroup.inherit
 		set(value) {
 			currentGroup.inherit = value
 		}
 	
-	private fun mergeInherit(other: GroupingInherit) {
+	fun mergeInherit(other: GroupInherit) {
 		val group = currentGroup
 		group.inherit = group.inherit.merge(other)
 	}
 	
-	private inline fun <R> withScope(scope: ScopeWithIr, block: () -> R): R {
+	inline fun <R> withScope(scope: ScopeWithIr, block: () -> R): R {
 		allScopes.add(scope)
 		return try {
 			block()
@@ -181,7 +256,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private enum class Type(val ansi: AnsiItem?) {
+	enum class Type(val ansi: AnsiItem?) {
 		none(null),
 		keyword(Ansi.purple),
 		lightKeyword(Ansi.brightPurple),
@@ -218,13 +293,13 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	private val regexCompactSpace = Regex("[),:?\\]]")
 	private val regexSpaceNone = Regex("[{]")
 	private val regexNoneSpace = Regex("[}]")
-	private val regexSpaceSpace = Regex("([+\\-*/=<>]|\\+=|-=|/=|\\*=|\\|=|&=|\\?:|->|&&|\\|\\|)")
+	private val regexSpaceSpace = Regex("([+\\-*/=]|\\+=|-=|/=|\\*=|\\|=|&=|\\?:|->|&&|\\|\\|)")
 	private val regexCompactCompact = Regex("([.($]|\\?\\.|\\.\\.|::)")
 	private val regexCompactNone = Regex("([>\\[]|!!|\\++|--)")
 	private val regexNoneCompact = Regex("[<\\]]")
 	
 	
-	private fun print(content: CharSequence, type: Type) {
+	fun print(content: CharSequence, type: Type) {
 		if(content.isEmpty()) return
 		if(!allowSpecialMarker && type == Type.specialMarker) return
 		
@@ -274,27 +349,27 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		currentIndex += content.length
 	}
 	
-	private fun compact() {
+	fun compact() {
 		lastSpace = SpaceType.compact
 	}
 	
-	private fun println() {
+	fun println() {
 		printer.println()
 		lastBlock = false
 		lastSpace = SpaceType.none
 	}
 	
-	private fun println(content: Any?, type: Type) {
+	fun println(content: Any?, type: Type) {
 		print(content, type)
 		println()
 	}
 	
-	private inline fun grouping(prefix: CharSequence, postfix: CharSequence, type: Type = Type.separator, inherit: GroupingInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
-		grouping({ print(prefix, type) }, { print(postfix, type) }, type, inherit, addIndent, newLine, block)
+	inline fun group(prefix: CharSequence, postfix: CharSequence, type: Type = Type.separator, inherit: GroupInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
+		group({ print(prefix, type) }, { print(postfix, type) }, type, inherit, addIndent, newLine, block)
 	}
 	
-	private inline fun grouping(prefix: () -> Unit, postfix: () -> Unit, type: Type = Type.separator, inherit: GroupingInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
-		groupingStack.push(Grouping(type, inherit))
+	inline fun group(prefix: () -> Unit, postfix: () -> Unit, type: Type = Type.separator, inherit: GroupInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
+		groupStack.push(Group(type, inherit))
 		prefix()
 		if(addIndent) printer.pushIndent()
 		if(newLine) println()
@@ -302,62 +377,73 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		try {
 			block()
 		} finally {
-			groupingStack.pop()
+			groupStack.pop()
 			if(addIndent) printer.popIndent()
 			if(newLine) println()
 			postfix()
 		}
 	}
 	
-	private inline fun grouping(type: Type = Type.separator, inherit: GroupingInherit = currentGroup.inherit, addIndent: Boolean = false, block: () -> Unit) {
-		groupingStack.push(Grouping(type, inherit))
+	inline fun group(type: Type = Type.separator, inherit: GroupInherit = currentGroup.inherit, addIndent: Boolean = false, block: () -> Unit) {
+		groupStack.push(Group(type, inherit))
 		if(addIndent) printer.pushIndent()
 		
 		try {
 			block()
 		} finally {
-			groupingStack.pop()
+			groupStack.pop()
 			if(addIndent) printer.popIndent()
 		}
 	}
 	
-	private inline fun stylePrefix(ansi: AnsiItem, block: () -> Unit) {
-		grouping(inherit = GroupingInherit(stylePrefix = ansi), block = block)
+	abstract val renderContent: Boolean
+	abstract val renderBody: Boolean
+	
+	inline fun renderContent(block: () -> Unit) {
+		if(renderContent) block()
 	}
 	
-	private inline fun stylePrefix(ansi: AnsiItem) {
-		mergeInherit(GroupingInherit(stylePrefix = ansi))
+	inline fun renderBody(block: () -> Unit) {
+		if(renderBody) block()
 	}
 	
-	private inline fun indented(block: () -> Unit) {
-		grouping(addIndent = true, block = block)
+	inline fun stylePrefix(ansi: AnsiItem, block: () -> Unit) {
+		group(inherit = GroupInherit(stylePrefix = ansi), block = block)
 	}
 	
-	private inline fun emptyGrouping(prefix: CharSequence, postfix: CharSequence, type: Type = Type.separator) {
+	inline fun stylePrefix(ansi: AnsiItem) {
+		mergeInherit(GroupInherit(stylePrefix = ansi))
+	}
+	
+	inline fun indented(block: () -> Unit) {
+		group(addIndent = true, block = block)
+	}
+	
+	inline fun emptyGroup(prefix: CharSequence, postfix: CharSequence, type: Type = Type.separator) {
 		print(prefix, type)
 		print(postfix, type)
 	}
 	
-	private inline fun groupExpr(block: () -> Unit) {
+	inline fun groupExpr(block: () -> Unit) {
 		// TODO: insert ( ) if necessary
 		printSeparator("(")
 		block()
 		printSeparator(")")
 	}
 	
-	private inline fun bracedBlock(newLine: Boolean = true, type: Type = Type.separator, block: () -> Unit) {
-		grouping("{", "}", type, addIndent = true, newLine = newLine) {
+	inline fun bracedBlock(newLine: Boolean = true, type: Type = Type.separator, block: () -> Unit) {
+		group("{", "}", type, addIndent = true, newLine = newLine) {
 			block()
 		}
 	}
 	
-	private inline fun groupParen(addIndent: Boolean = false, newLine: Boolean = false, type: Type = Type.separator, block: () -> Unit) {
-		grouping("(", ")", type, addIndent = addIndent, newLine = newLine) {
+	inline fun parenGroup(addIndent: Boolean = false, newLine: Boolean = false, type: Type = Type.separator, block: () -> Unit) {
+		group("(", ")", type, addIndent = addIndent, newLine = newLine) {
 			block()
 		}
 	}
 	
-	private inline fun <R> provideInherit(other: GroupingInherit, block: () -> R): R {
+	inline fun <R> provideInherit(other: GroupInherit, block: () -> R): R {
 		val group = currentGroup
 		val last = group.inherit
 		group.inherit = last.merge(other)
@@ -368,18 +454,18 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private inline fun overrideAllType(type: Type, block: () -> Unit) {
-		provideInherit(GroupingInherit(overrideAllType = type), block)
+	inline fun overrideAllType(type: Type, block: () -> Unit) {
+		provideInherit(GroupInherit(overrideAllType = type), block)
 	}
 	
-	private inline fun specialMarker(block: () -> Unit) {
+	inline fun specialMarker(block: () -> Unit) {
 		if(allowSpecialMarker) overrideAllType(Type.specialMarker, block)
 	}
 	
-	private inline fun overrideType(target: Type, with: Type, block: () -> Unit) =
-		grouping(inherit = GroupingInherit(localOverrides = listOf(target to with)), block = block)
+	inline fun overrideType(target: Type, with: Type, block: () -> Unit) =
+		group(inherit = GroupInherit(localOverrides = listOf(target to with)), block = block)
 	
-	private inline fun <R> overrideTypeLocal(target: Type, with: Type, block: () -> R): R {
+	inline fun <R> overrideTypeLocal(target: Type, with: Type, block: () -> R): R {
 		val localOverrides = currentGroup.localOverrides
 		
 		localOverrides.push(target to with)
@@ -390,25 +476,25 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private inline fun print(content: Any?, type: Type) {
+	inline fun print(content: Any?, type: Type) {
 		print(content.toString(), type)
 	}
 	
-	private inline fun print(type: Type, block: () -> CharSequence) {
+	inline fun print(type: Type, block: () -> CharSequence) {
 		print(block(), type)
 	}
 	
-	private fun printSpace() {
+	fun printSpace() {
 		printer.print(" ")
 		lastBlock = false
 		lastSpace = SpaceType.compact
 	}
 	
-	private fun IrElement.print() {
+	fun IrElement.print() {
 		acceptVoid(this@IrSourcePrinterVisitor)
 	}
 	
-	private inline fun <T> Iterable<T>.iterate(block: (element: T, hasNext: Boolean) -> Unit) {
+	inline fun <T> Iterable<T>.iterate(block: (element: T, hasNext: Boolean) -> Unit) {
 		val iterator = iterator()
 		var lastHasNext = iterator.hasNext()
 		while(lastHasNext) {
@@ -418,8 +504,8 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun Iterable<IrElement>.printJoin(separator: CharSequence, separatorType: Type = Type.separator) =
-		grouping {
+	fun Iterable<IrElement>.printJoin(separator: CharSequence, separatorType: Type = Type.separator) =
+		group {
 			var indexBefore = currentIndex
 			
 			iterate { element, hasNext ->
@@ -431,7 +517,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			}
 		}
 	
-	private inline fun <T> Iterable<T>.printJoin(separator: CharSequence, separatorType: Type = Type.separator, block: (T) -> Unit) {
+	inline fun <T> Iterable<T>.printJoin(separator: CharSequence, separatorType: Type = Type.separator, block: (T) -> Unit) {
 		var indexBefore = currentIndex
 		
 		iterate { element, hasNext ->
@@ -443,7 +529,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private inline fun <T> List<T>.printJoin(separator: () -> Unit, block: (T) -> Unit) {
+	inline fun <T> List<T>.printJoin(separator: () -> Unit, block: (T) -> Unit) {
 		var indexBefore = currentIndex
 		val last = lastIndex
 		
@@ -457,52 +543,52 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	}
 	
 	@JvmName("printWithReceiver")
-	private inline fun CharSequence.print(type: Type) {
+	inline fun CharSequence.print(type: Type) {
 		print(this, type)
 	}
 	
-	private inline fun printKeyword(content: Any?) {
+	inline fun printKeyword(content: Any?) {
 		print(content, Type.keyword)
 	}
 	
-	private inline fun printIdentifier(content: Any?) {
+	inline fun printIdentifier(content: Any?) {
 		print(content, Type.identifier)
 	}
 	
-	private inline fun printSeparator(content: Any?) {
+	inline fun printSeparator(content: Any?) {
 		print(content, Type.separator)
 	}
 	
 	@JvmName("printWithReceiver")
-	private inline fun Any?.print(type: Type) {
+	inline fun Any?.print(type: Type) {
 		print(this.toString(), type)
 	}
 	
-	private inline fun unknown(content: CharSequence) {
+	inline fun unknown(content: CharSequence) {
 		print(content, Type.unknown)
 	}
 	
-	private fun debug(content: CharSequence) {
+	fun debug(content: CharSequence) {
 		print(content, Type.debug)
 	}
 	
-	private fun none(content: CharSequence) {
+	fun none(content: CharSequence) {
 		print(content, Type.none)
 	}
 	
-	private inline fun debug(block: () -> Unit) {
-		if(debug) provideInherit(GroupingInherit(stylePrefix = Type.debug.ansi), block)
+	inline fun debug(block: () -> Unit) {
+		if(debug) provideInherit(GroupInherit(stylePrefix = Type.debug.ansi), block)
 	}
 	
-	private fun errorScope() {
-		mergeInherit(GroupingInherit(overrideAllType = Type.error))
+	fun errorScope() {
+		mergeInherit(GroupInherit(overrideAllType = Type.error))
 	}
 	
-	private fun printError(content: CharSequence) {
+	fun printError(content: CharSequence) {
 		print(content, Type.error)
 	}
 	
-	private fun Visibility.print(default: Visibility = Visibilities.PUBLIC) = when(this) {
+	fun Visibility.print(default: Visibility = Visibilities.PUBLIC) = when(this) {
 		default -> ""
 		Visibilities.PUBLIC -> "public"
 		// Visibilities.DEFAULT_VISIBILITY // == public
@@ -516,7 +602,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	}.print(Type.keyword)
 	
 	
-	private fun Modality.print(default: Modality = Modality.FINAL) = when(this) {
+	fun Modality.print(default: Modality = Modality.FINAL) = when(this) {
 		default -> ""
 		Modality.FINAL -> "final"
 		Modality.SEALED -> "sealed"
@@ -524,15 +610,15 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		Modality.ABSTRACT -> "abstract"
 	}.print(Type.keyword)
 	
-	private fun List<IrTypeParameter>.print() {
+	fun List<IrTypeParameter>.print() {
 		if(isNotEmpty()) {
-			grouping("<", ">", Type.separator) {
+			group("<", ">", Type.separator) {
 				printJoin(",")
 			}
 		}
 	}
 	
-	private fun IrType.print() {
+	fun IrType.print() {
 		when(this) {
 			is IrDynamicType -> {
 				annotations.printAnnotations(false)
@@ -560,9 +646,9 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 							printSeparator(".")
 						}
 						
-						groupParen {
-							parameters.printJoin(",") {
-								val type = it.typeOrNull
+						parenGroup {
+							parameters.printJoin(",") { parameter ->
+								val type = parameter.typeOrNull
 								val parameterName = type?.getAnnotation(parameterNameAnnotation)
 								
 								if(parameterName != null) {
@@ -570,9 +656,9 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 									printSeparator(":")
 								}
 								
-								if(type == null) it.printTypeArgument()
+								if(type == null) parameter.printTypeArgument()
 								else {
-									val newAnnotations = type.annotations.filter { it.symbol.descriptor.fqNameSafe != parameterNameAnnotation }
+									val newAnnotations = type.annotations.filter { it.symbol != parameterName?.symbol }
 									type.replaceAnnotations(newAnnotations).print()
 								}
 							}
@@ -587,7 +673,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					
 					classifier.print()
 					
-					if(arguments.isNotEmpty()) grouping("<", ">") {
+					if(arguments.isNotEmpty()) group("<", ">") {
 						arguments.printJoin(",") {
 							it.printTypeArgument()
 						}
@@ -601,7 +687,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				if(abbreviation != null) {
 					abbreviation.annotations.printAnnotations(false)
 					print(abbreviation.typeAlias.descriptor.name, Type.typeAlias)
-					if(arguments.isNotEmpty()) grouping("<", ">") {
+					if(arguments.isNotEmpty()) group("<", ">") {
 						abbreviation.arguments.printJoin(",") {
 							it.printTypeArgument()
 						}
@@ -609,7 +695,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					if(hasQuestionMark) print("?", Type.specialOperator)
 					
 					overrideAllType(Type.specialMarker) {
-						groupParen {
+						parenGroup {
 							printSeparator("=")
 							printContent()
 						}
@@ -621,7 +707,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun IrClassifierSymbol.print() {
+	fun IrClassifierSymbol.print() {
 		when(this) {
 			is IrClassSymbol ->
 				print(descriptor.name, if(descriptor.kind == ClassKind.INTERFACE) Type.interfaceClass else Type.classClass)
@@ -630,7 +716,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun IrTypeArgument.printTypeArgument() {
+	fun IrTypeArgument.printTypeArgument() {
 		when(this) {
 			is IrStarProjection -> "*".print(Type.specialOperator)
 			
@@ -650,7 +736,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					print("@", Type.annotationClass)
 					single().printCallAnnotation()
 				} else {
-					grouping("@[", "]", Type.annotationClass) {
+					group("@[", "]", Type.annotationClass) {
 						printJoin(",") {
 							it.printCallAnnotation()
 						}
@@ -674,14 +760,14 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		debug { element.check() }
 	}
 	
-	private inline fun <T> statement(statement: T, block: T.() -> Unit) = grouping {
+	inline fun <T> statement(statement: T, block: T.() -> Unit) = group {
 		statement.block()
 	}
 	
-	private inline fun <T> declare(declaration: T, block: T.() -> Unit) =
+	inline fun <T> declare(declaration: T, block: T.() -> Unit) =
 		statement(declaration, block)
 	
-	private inline fun <T> expr(expression: T, block: T.() -> Unit) = grouping {
+	inline fun <T> expr(expression: T, block: T.() -> Unit) = group {
 		expression.block()
 	}
 	
@@ -693,41 +779,35 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	
 	///// declarations
 	
-	private fun IrElement.check() {
+	fun IrElement.check() {
 		if(set.contains(this)) printError(" <- duplicate IR node")
 		set.add(this)
 		
 		// Nothing to do.
 	}
 	
-	private fun ensureTypesEqual(actualType: IrType, expectedType: IrType) {
+	fun ensureTypesEqual(actualType: IrType, expectedType: IrType) {
 		if(actualType != expectedType) {
 			printError(" <- unexpected type: expected ${expectedType.render()}, got ${actualType.render()}")
 		}
 	}
 	
-	private fun IrExpression.ensureNullable() {
+	fun IrExpression.ensureNullable() {
 		if(!type.isNullable())
 			printError(" <- expected a nullable type, got ${type.render()}")
 	}
 	
-	private fun IrExpression.ensureTypeIs(expectedType: IrType) {
+	fun IrExpression.ensureTypeIs(expectedType: IrType) {
 		ensureTypesEqual(type, expectedType)
 	}
 	
-	private fun IrSymbol.ensureBound(expression: IrExpression) {
+	fun IrSymbol.ensureBound(expression: IrExpression) {
 		if(!this.isBound && expression.type !is IrDynamicType) {
 			printError("<- unbound symbol $this")
 		}
 	}
 	
-	override fun visitFunctionAccess(expression: IrFunctionAccessExpression) {
-		super.visitFunctionAccess(expression)
-		
-		expression.symbol.ensureBound(expression)
-	}
-	
-	private fun IrOverridableDeclaration<*>.checkOverrides() {
+	fun IrOverridableDeclaration<*>.checkOverrides() {
 		for(overriddenSymbol in overriddenSymbols) {
 			val overriddenDeclaration = overriddenSymbol.ownerOrNull as? IrDeclarationWithVisibility
 				?: continue
@@ -746,13 +826,13 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun checkType(type: IrType) {
+	fun checkType(type: IrType) {
 		if(type in checkedTypes)
 			return
 		
 		when(type) {
 			is IrSimpleType -> {
-				if(!type.classifier.isBound) grouping {
+				if(!type.classifier.isBound) group {
 					errorScope()
 					debug(" <- Type: ")
 					type.print()
@@ -829,7 +909,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				it.printFunctionHead()
 			}
 			
-			grouping("(", ")", Type.separator) {
+			parenGroup(type = Type.separator) {
 				val properties = declarations.mapNotNull { it as? IrProperty }
 				
 				it.valueParameters.printJoin(",") { parameter ->
@@ -874,7 +954,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				print(":", Type.separator)
 				superTypes.printJoin(",") { superType ->
 					val classSymbol = superType.classOrNull ?: run {
-						grouping {
+						group {
 							errorScope()
 							superType.print()
 							debug(" <- super not class")
@@ -884,27 +964,32 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					when(classSymbol.descriptor.kind) {
 						ClassKind.INTERFACE -> {
 							superType.print()
-							val delegatedMember = delegatedMembers[classSymbol]
-							if(delegatedMember != null) {
-								fun IrBody.asExpression() = when(val last = statements.last()) {
-									is IrReturn -> last.value
-									is IrExpression -> last
-									else -> error("$last")
+							try {
+								val delegatedMember = delegatedMembers[classSymbol]
+								if(delegatedMember != null) {
+									fun IrBody.asExpression() = when(val last = statements.last()) {
+										is IrReturn -> last.value
+										is IrExpression -> last
+										else -> error("$last")
+									}
+									
+									val toGetDelegate = when(delegatedMember) {
+										is IrProperty -> {
+											val getterCall = delegatedMember.getter!!.body!!.asExpression() as IrCall /* getter <get-???> */
+											getterCall.dispatchReceiver
+										}
+										is IrFunction -> {
+											val call = delegatedMember.body!!.asExpression() as IrCall
+											call.dispatchReceiver
+										}
+										else -> error("TODO? unexpected delegated member $delegatedMember")
+									} as IrGetField
+									printKeyword("by")
+									toGetDelegate.symbol.owner.initializer!!.expression.print()
 								}
-								
-								val toGetDelegate = when(delegatedMember) {
-									is IrProperty -> {
-										val getterCall = delegatedMember.getter!!.body!!.asExpression() as IrCall /* getter <get-???> */
-										getterCall.dispatchReceiver
-									}
-									is IrFunction -> {
-										val call = delegatedMember.body!!.asExpression() as IrCall
-										call.dispatchReceiver
-									}
-									else -> error("TODO? unexpected delegated member $delegatedMember")
-								} as IrGetField
+							} catch(e: Throwable) {
 								printKeyword("by")
-								toGetDelegate.symbol.owner.initializer!!.expression.print()
+								printError("[error]")
 							}
 						}
 						else -> {
@@ -928,7 +1013,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					if(superTypes.count { it.classOrNull?.descriptor?.kind != ClassKind.INTERFACE } > 1) {
 						errorScope()
 						printError(" <- multiple class inheritance")
-						groupParen {
+						parenGroup {
 							superTypes.filter { it.classOrNull?.descriptor?.kind != ClassKind.INTERFACE }.printJoin(",") {
 								it.print()
 							}
@@ -939,6 +1024,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			
 			
 			// body
+			if(!renderContent) return
 			val declarationsToShow = declarations
 				.filter { it != primaryConstructor && it !in constructorProperties }
 				.filter { it.origin != IrDeclarationOrigin.FAKE_OVERRIDE && it.origin != IrDeclarationOrigin.DELEGATED_MEMBER && it.origin != IrDeclarationOrigin.DELEGATE }
@@ -985,7 +1071,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				if(missingDescriptors.isNotEmpty()) {
 					errorScope()
 					debug(" <- missing descriptors")
-					groupParen {
+					parenGroup {
 						missingDescriptors.printJoin(",") {
 							debug(it.dump())
 						}
@@ -999,7 +1085,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		// ignore, already handled by visitClass
 	}
 	
-	private fun List<IrProperty>.correspondingProperty(param: IrValueParameter) = find {
+	fun List<IrProperty>.correspondingProperty(param: IrValueParameter) = find {
 		if(it.name == param.name) {
 			val init = it.backingField?.initializer?.expression as? IrGetValue
 			init?.origin == IrStatementOrigin.INITIALIZE_PROPERTY_FROM_PARAMETER
@@ -1054,6 +1140,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	}
 	
 	// body
+	// NOT check for renderBody: it should have checked in advance
 	override fun visitBlockBody(body: IrBlockBody) = bracedBlock {
 		val statements = body.statements
 		if(statements.isNotEmpty()) {
@@ -1070,18 +1157,41 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		debug { body.check() }
 	}
 	
-	// functions
+	fun IrElement.printBody() {
+		if(renderBody) print() else when(this) {
+			is IrBlockBody -> bracedBlock { printSkip() }
+			is IrExpression -> {
+				printSeparator("=")
+				printSkip()
+			}
+			is IrSyntheticBody -> bracedBlock { printSkip() }
+			else -> printSkip()
+		}
+	}
 	
-	val functionOriginsToSkip = arrayOf(IrDeclarationOrigin.FAKE_OVERRIDE, IrDeclarationOrigin.GENERATED_DATA_CLASS_MEMBER)
+	fun IrElement.printOrSkip() {
+		if(renderBody) print()
+		else printSkip()
+	}
+	
+	fun IrElement.printBodyOrSkip() {
+		renderBody { print() }
+	}
+	
+	fun printSkip() {
+		print("...", Type.comment)
+	}
+	
+	// functions
 	
 	override fun visitFunctionNew(declaration: IrFunction): Unit = declare(declaration) {
 		when(this) {
 			is IrSimpleFunction -> {
-				if(origin in functionOriginsToSkip) return
+				if(origin in config.originsToFilter) return
 				printFunctionHead()
 				valueParameters.printValueParameters()
 				printFunctionReturnType()
-				body?.print()
+				body?.printBody()
 			}
 			
 			is IrConstructor -> {
@@ -1098,7 +1208,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				valueParameters.printValueParameters()
 				
 				// delegating_constructor_call - constructor() : super() / this()
-				val delegation = (body as? IrBlockBody)?.statements?.get(0) as? IrDelegatingConstructorCall
+				val delegation = (body as? IrBlockBody)?.statements?.getOrNull(0) as? IrDelegatingConstructorCall
 				if(delegation != null) {
 					printSpace()
 					print(":", Type.separator)
@@ -1111,14 +1221,16 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					delegation.printCallValueArguments()
 				}
 				
-				body?.print()
+				body?.printBody()
 			}
+			else -> unknown("[unexpected function $this]")
 		}
 		
 		debug {
 			check()
 			
 			if(this is IrSimpleFunction) {
+				// but all getter/setters are handled by visitProperty: this just checks in case
 				val property = correspondingPropertySymbol?.ownerOrNull
 				if(property != null && property.getter != this && property.setter != this) {
 					printError(" <- orphaned property getter/setter")
@@ -1136,7 +1248,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				printError(" <- inconsistent valueParameters index ")
 				inconsistentValueParameters.printJoin(",") {
 					print(it.value.name, Type.valueParameter)
-					groupParen {
+					parenGroup {
 						print(it.index, Type.identifier)
 						print("=", Type.specialOperator)
 						printError(it.value.index.toString())
@@ -1150,7 +1262,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				printError(" <- inconsistent valueParameters index ")
 				inconsistentTypeParameters.printJoin(",") {
 					print(it.value.name, Type.valueParameter)
-					groupParen {
+					parenGroup {
 						print(it.index, Type.identifier)
 						print("=", Type.specialOperator)
 						printError(it.value.index.toString())
@@ -1164,7 +1276,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	override fun visitAnonymousInitializerNew(declaration: IrAnonymousInitializer) =
 		declare(declaration) {
 			print("init", Type.lightKeyword)
-			body.print()
+			body.printBody()
 			
 			debug { check() }
 		}
@@ -1183,7 +1295,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		printSeparator("=")
 		expandedType.print()
 		
-		debug { declaration.check() }
+		debug { check() }
 	}
 	
 	
@@ -1214,7 +1326,10 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		//      correspondingProperty: PROPERTY name:a visibility:public modality:FINAL [val]
 		// >>   $receiver: VALUE_PARAMETER name:<this> type:<unbound IrClassPublicSymbolImpl> <- this
 		//      BLOCK_BODY
-		getter?.extensionReceiverParameter?.type?.print()
+		getter?.extensionReceiverParameter?.type?.let {
+			it.print()
+			printSeparator(".")
+		}
 		
 		print(name, Type.property)
 		printSeparator(":")
@@ -1251,8 +1366,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				// (|- getter)
 				// (|- setter)
 				
-				print("=", Type.specialOperator)
-				backingField.initializer!!.expression.print()
+				backingField.initializer!!.printBody()
 			}
 		}
 		
@@ -1263,17 +1377,17 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				if(definedGetter != null) {
 					print("get", Type.lightKeyword)
 					definedGetter.valueParameters.printValueParameters() // having valueParameters is impossible in frontend, but possible in IR
-					definedGetter.body?.print()
+					definedGetter.body?.printBody()
 				}
 				
 				if(definedSetter != null) {
 					print("set", Type.lightKeyword)
-					groupParen {
+					parenGroup {
 						if(definedSetter.valueParameters.size == 1)
 							print(definedSetter.valueParameters.single().name, Type.valueParameter)
 						else definedSetter.valueParameters.printValueParameters() // having more valueParameters is impossible in frontend, but possible in IR
 					}
-					definedSetter.body?.print()
+					definedSetter.body?.printBody()
 				}
 			}
 		}
@@ -1284,7 +1398,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	
 	/// other
 	
-	private fun List<IrValueParameter>.printValueParameters() = groupParen {
+	fun List<IrValueParameter>.printValueParameters() = parenGroup {
 		printJoin(",")
 	}
 	
@@ -1302,6 +1416,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		
 		type.print()
 		
+		// just print even if renderBody is true
 		defaultValue?.print() // defaultValue is ExpressionBody, `= ...`
 		
 		debug { check() }
@@ -1344,6 +1459,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		
 		val initializer = initializer
 		val isTypeSpecifyNeeded = when { // explicit is good for debug
+			!renderBody -> true
 			initializer == null -> true
 			initializer is IrConstructorCall -> false // val myClass: MyClass <- indeed unnecessary = MyClass()
 			initializer is IrConst<*> &&
@@ -1358,7 +1474,8 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		
 		if(initializer != null) {
 			print("=", Type.specialOperator)
-			initializer.print()
+			if(renderBody) initializer.print()
+			else printSkip()
 		}
 		
 		debug { check() }
@@ -1375,7 +1492,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		type.print()
 		
 		print("by", Type.lightKeyword)
-		delegate.initializer!!.print()
+		delegate.initializer!!.printOrSkip()
 		
 		debug { check() }
 	}
@@ -1430,20 +1547,21 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	
 	override fun visitCall(expression: IrCall) = expr(expression) {
 		// in case of builtin operators
+		val function = symbol.tryBind().owner
 		val descriptor = symbol.descriptor
 		val isInfix = descriptor.isInfix
 		val receiver = anyReceiver
-		val name = descriptor.name.asString()
+		val name = function.name.asString()
 		
 		if(descriptor.isOperator || descriptor is IrSimpleBuiltinOperatorDescriptorImpl) {
 			if(name == "not") {
 				// `a !== b` looks like `not(equals(a, b))`
 				val arg = receiver!!
 				if(arg is IrCall) {
-					val fn = arg.symbol.owner
-					if(fn.descriptor is IrSimpleBuiltinOperatorDescriptorImpl) {
+					val fn = arg.symbol.descriptor
+					if(fn is IrSimpleBuiltinOperatorDescriptorImpl) {
 						when(fn.name.asString()) {
-							"equals", "EQEQ", "EQEQEQ" -> provideInherit(GroupingInherit(isNotCall = true)) {
+							"equals", "EQEQ", "EQEQEQ" -> provideInherit(GroupInherit(isNotCall = true)) {
 								arg.print()
 								return
 							}
@@ -1453,33 +1571,38 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			}
 			
 			val operatorName = getOperatorFromName(name)
+			fun printOperator() {
+				printSpace()
+				print(operatorName, Type.specialOperator)
+				printSpace()
+			}
 			
 			when(name) {
 				// unary prefix
 				"unaryPlus", "unaryMinus", "not" -> {
-					print(operatorName, Type.specialOperator)
-					receiver?.print()
+					printOperator()
+					printCallReceiver(false)
 				}
 				// unary postfix
 				"inc", "dec" -> {
-					receiver?.print()
-					print(operatorName, Type.specialOperator)
+					printCallReceiver(false)
+					printOperator()
 				}
 				// invoke
 				"invoke" -> {
-					receiver?.print()
+					printCallReceiver(false)
 					printCallValueArguments()
 				}
 				// get indexer
 				"get" -> {
-					receiver?.print()
+					printCallReceiver(false)
 					printCallValueArguments("[", "]", trailingLambdaCapable = false)
 				}
 				// set indexer
 				"set" -> {
-					receiver?.print()
-					grouping("[", "]") {
-						printCallValueArguments(descriptor, valueArguments.dropLast(1))
+					printCallReceiver(false)
+					group("[", "]") {
+						printCallValueArguments(function, valueArguments.dropLast(1))
 					}
 					print("=", Type.specialOperator)
 					valueArguments.last()!!.print()
@@ -1487,11 +1610,11 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				// builtin static operators
 				"greater", "less", "lessOrEqual", "greaterOrEqual", "EQEQ", "EQEQEQ", "ANDAND", "OROR" -> {
 					getValueArgument(0)?.print()
-					print(operatorName, Type.specialOperator)
+					printOperator()
 					getValueArgument(1)?.print()
 				}
 				"iterator", "hasNext", "next", "compareTo" -> {
-					printCallPrefix()
+					printCallReceiver()
 					print(operatorName, Type.function)
 					printCallValueArguments()
 				}
@@ -1500,11 +1623,11 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					if(name.startsWith("component")) {
 						receiver?.printAsReceiver()
 						print(operatorName, Type.function)
-						groupParen {}
+						parenGroup {}
 					} else {
 						// else binary
-						receiver?.print()
-						print(operatorName, Type.specialOperator)
+						printCallReceiver(false)
+						printOperator()
 						valueArguments.printJoin(",") { it?.print() }
 					}
 				}
@@ -1518,25 +1641,25 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				else -> false
 			}
 			
-			grouping {
+			group {
 				if(intAsBinary && receiver is IrConst<*>)
-					mergeInherit(GroupingInherit(printIntAsBinary = true))
-				receiver!!.print()
+					mergeInherit(GroupInherit(printIntAsBinary = true))
+				printCallReceiver(false)
 			}
 			printSpace() // ensure spaces around infix function
 			print(name, Type.function)
 			printCallTypeArguments()
 			printSpace()
-			grouping {
+			group {
 				val argument = getValueArgument(0)!!
 				if(intAsBinary && argument is IrConst<*>)
-					mergeInherit(GroupingInherit(printIntAsBinary = true))
+					mergeInherit(GroupInherit(printIntAsBinary = true))
 				argument.print()
 			}
 			return
 		}
 		
-		printCallPrefix()
+		printCallReceiver()
 		val prop = (symbol.ownerOrNull as? IrSimpleFunction)?.correspondingPropertySymbol?.ownerOrNull
 		
 		when {
@@ -1557,12 +1680,12 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			
 			origin == IrStatementOrigin.GET_PROPERTY -> {
 				// here, some bridge: java getValue()
-				val propName = descriptor.name.asString()
+				val propName = function.name.asString()
 				val realPropNamePascal = when {
 					propName.startsWith("get") -> propName.drop(3)
 					propName.startsWith("is") -> propName.drop(2)
 					else -> {
-						print(descriptor.name, Type.function)
+						print(propName, Type.function)
 						printCallTypeArguments()
 						printCallValueArguments()
 						printError("<- GET_PROPERTY without appropriate name: $propName")
@@ -1573,14 +1696,14 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			}
 			origin == IrStatementOrigin.EQ -> {
 				// here, some bridge: java setValue(...)
-				val propName = descriptor.name.asString()
+				val propName = function.name.asString()
 				require(propName.startsWith("set"))
 				print(propName.drop(3).decapitalizeFirst(), Type.property)
 				print("=", Type.specialOperator)
 				valueArguments.single()!!.print()
 			}
 			else -> {
-				print(descriptor.name, Type.function)
+				print(function.name, Type.function)
 				printCallTypeArguments()
 				printCallValueArguments()
 			}
@@ -1589,21 +1712,12 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		debug {
 			check()
 			
-			if((extensionReceiver == null) != (descriptor.extensionReceiverParameter == null))
-				printError(" <- extensionReceiver " + if(extensionReceiver == null) "missing" else "unexpected")
-			if((dispatchReceiver == null) != (descriptor.dispatchReceiverParameter == null))
-				printError(" <- dispatchReceiver " + if(dispatchReceiver == null) "missing" else "unexpected")
-			
-			if(symbol.tryBind().isBound) {
-				val function = symbol.owner
-				
-				val returnType = function.returnType
-				if(returnType is IrSimpleType &&
-					returnType.classifier is IrClassSymbol &&
-					returnType.arguments.isEmpty()
-				) {
-					ensureTypeIs(returnType)
-				}
+			val returnType = function.returnType
+			if(returnType is IrSimpleType &&
+				returnType.classifier is IrClassSymbol &&
+				returnType.arguments.isEmpty()
+			) {
+				ensureTypeIs(returnType)
 			}
 			
 			superQualifierSymbol?.ensureBound(this)
@@ -1642,13 +1756,13 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun IrConstructorCall.printCallAnnotation() {
-		grouping(inherit = GroupingInherit(isAnnotationCall = true)) {
+	fun IrConstructorCall.printCallAnnotation() {
+		group(inherit = GroupInherit(isAnnotationCall = true)) {
 			print()
 		}
 	}
 	
-	fun IrFunctionAccessExpression.printCallPrefix() {
+	fun IrFunctionAccessExpression.printCallReceiver(printDot: Boolean = true) {
 		val dispatchReceiver = dispatchReceiver
 		val extensionReceiver = extensionReceiver
 		val dispatchIsSpecial = dispatchReceiver.let {
@@ -1658,9 +1772,53 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			it is IrGetValue && it.symbol.descriptor.name.isSpecial
 		}
 		
+		fun IrExpression.doPrint() {
+			if(printDot) printAsReceiver()
+			else print()
+		}
+		
 		when {
-			dispatchReceiver != null && !dispatchIsSpecial -> dispatchReceiver.printAsReceiver()
-			extensionReceiver != null && !extensionIsSpecial -> extensionReceiver.printAsReceiver()
+			dispatchReceiver != null && !dispatchIsSpecial -> dispatchReceiver.doPrint()
+			extensionReceiver != null && !extensionIsSpecial -> extensionReceiver.doPrint()
+		}
+		
+		debug {
+			val function = symbol.tryBind().owner
+			val expectedDispatch = function.dispatchReceiverParameter?.type
+			val actualDispatch = dispatchReceiver?.type
+			if(expectedDispatch == null) {
+				if(actualDispatch != null) printError(" <- unexpected dispatchReceiver")
+			} else {
+				if(actualDispatch == null) printError(" <- missing dispatchReceiver")
+				else if(!actualDispatch.checkSubtypeOf(expectedDispatch, irBuiltIns)) {
+					printError(" <- dispatchReceiver type not match")
+					parenGroup {
+						expectedDispatch.print()
+						none(" <== ")
+						actualDispatch.print()
+					}
+				}
+			}
+			
+			val expectedExtension = function.extensionReceiverParameter?.type
+			val actualExtension = extensionReceiver?.type
+			if(expectedExtension == null && actualExtension != null)
+				printError(" <- unexpected extensionReceiver")
+			if(expectedExtension != null && actualExtension == null)
+				printError(" <- missing extensionReceiver")
+			if(expectedExtension == null) {
+				if(actualExtension != null) printError(" <- unexpected extensionReceiver")
+			} else {
+				if(actualExtension == null) printError(" <- missing extensionReceiver")
+				else if(!actualExtension.checkSubtypeOf(expectedExtension, irBuiltIns)) {
+					printError(" <- extensionReceiver type not match")
+					parenGroup {
+						expectedExtension.print()
+						none(" <== ")
+						actualExtension.print()
+					}
+				}
+			}
 		}
 	}
 	
@@ -1670,17 +1828,17 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			type != null && symbol.descriptor.valueParameters.none { it.type == type.toKotlinType() }
 		}
 		
-		if(needToExplicitTypeParameters) grouping("<", ">") {
+		if(needToExplicitTypeParameters) group("<", ">") {
 			typeArguments.printJoin(",") { (it ?: TODO("hOI!!")).print() }
 		}
 	}
 	
 	fun IrFunctionAccessExpression.printCallValueArguments(prefix: CharSequence = "(", postfix: CharSequence = ")", trailingLambdaCapable: Boolean = true) {
-		printCallValueArguments(symbol.descriptor, valueArguments, prefix, postfix, trailingLambdaCapable)
+		printCallValueArguments(symbol.tryBind().owner, valueArguments, prefix, postfix, trailingLambdaCapable)
 	}
 	
 	fun printCallValueArguments(
-		descriptor: FunctionDescriptor, valueArguments: List<IrExpression?>,
+		function: IrFunction, valueArguments: List<IrExpression?>,
 		prefix: CharSequence = "(", postfix: CharSequence = ")",
 		trailingLambdaCapable: Boolean = true
 	) {
@@ -1693,12 +1851,12 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		
 		val arguments = if(trailingLambda != null) valueArguments.dropLast(1) else valueArguments
 		
-		if(arguments.isNotEmpty() || trailingLambda == null) grouping(prefix, postfix) {
+		if(arguments.isNotEmpty() || trailingLambda == null) group(prefix, postfix) {
 			var useParameterName = false
 			arguments.withIndex()
 				.filter { argument -> (argument.value != null).also { if(!it) useParameterName = true } }
 				.printJoin(",") {
-					val parameter = descriptor.valueParameters[it.index]
+					val parameter = function.valueParameters[it.index]
 					val argument = it.value!!
 					
 					if(useParameterName) {
@@ -1711,32 +1869,40 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 						val argumentType = argument.type
 						val parameterType = parameter.type
 						if(argumentType.classOrNull != null &&
-							parameterType.constructor.declarationDescriptor is ClassDescriptor &&
-							!argumentType.toKotlinType().replaceArgumentsWithStarProjections().isSubtypeOf(parameterType.replaceArgumentsWithStarProjections())) {
+							parameterType.classOrNull != null &&
+							!argumentType.checkSubtypeOf(parameterType, irBuiltIns)) {
 							errorScope()
-							debug("<- type mismatch (${parameter.type} = ${argument.type.toKotlinType()})")
+							debug("<- type mismatch")
+							parenGroup {
+								parameter.type.print()
+								debug(" <== ")
+								argument.type.print()
+							}
 						}
 					}
 				}
 		}
 		
 		debug {
-			if(descriptor.valueParameters.size != valueArguments.size) {
+			if(function.valueParameters.size != valueArguments.size) {
 				errorScope()
-				none(" <- valueParameters not provided:")
-				print(descriptor.dump())
+				none(
+					if(function.valueParameters.size > valueArguments.size) " <- valueParameters not provided:"
+					else " <- too much valueArguments:"
+				)
+				print(function.dumpSrcHeadColored(config))
 				none(" << ")
 				none(valueArguments.size.toString())
 			} else {
-				val notProvided = descriptor.valueParameters.filterIndexed { i, parameter ->
-					!parameter.declaresDefaultValue() && valueArguments[i] == null
+				val notProvided = function.valueParameters.filterIndexed { i, parameter ->
+					parameter.defaultValue == null && valueArguments[i] == null
 				}
 				
 				if(notProvided.isNotEmpty()) {
 					errorScope()
 					none("<- no argument: ")
 					
-					groupParen {
+					parenGroup {
 						notProvided.printJoin(",") {
 							print(it.name, Type.valueParameter)
 						}
@@ -1805,7 +1971,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 	}
 	
-	private fun intAsBinaryString(value: Int): String {
+	fun intAsBinaryString(value: Int): String {
 		if(value == 0) return "0"
 		var current = value
 		var result = ""
@@ -1961,11 +2127,11 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		}
 		
 		
-		grouping {
+		group {
 			// in case of closure
 			val parent = symbol.tryBind().owner.parent
 			val currentFunction = currentFunction?.irElement
-			if(parent != null && currentFunction != null && parent != currentFunction)
+			if(currentFunction != null && parent != currentFunction)
 				stylePrefix(Ansi.italic)
 			
 			print(symbol.descriptor.name, symbol.type)
@@ -1998,11 +2164,11 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				item is IrConst<*> && item.kind == IrConstKind.String -> print(item.value.toString(), Type.stringLiteral)
 				item is IrGetValue -> {
 					print("\$", Type.specialOperator)
-					grouping {
+					group {
 						item.print()
 					}
 				}
-				else -> grouping("\${", "}") {
+				else -> group("\${", "}") {
 					item.print()
 				}
 				
@@ -2149,14 +2315,14 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				
 				if(!valueParamsMatches) {
 					printError(" <- [ir] valueParameters of the function does not match with the type")
-					groupParen {
+					parenGroup {
 						type.print()
 					}
 				}
 				
 				if(function.returnType != returnType) {
 					printError(" <- [ir] returnType of the function does not match with the type")
-					groupParen {
+					parenGroup {
 						if(returnType == null) {
 							debug("type projection ")
 							type.arguments.last().printTypeArgument()
@@ -2168,10 +2334,10 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	}
 	
 	override fun visitVararg(expression: IrVararg) {
-		if(currentInherit.isAnnotationCall) grouping("[", "]") {
+		if(currentInherit.isAnnotationCall) group("[", "]") {
 			expression.elements.printJoin(",")
 		}
-		else grouping {
+		else group {
 			expression.elements.printJoin(",")
 		}
 		
@@ -2224,7 +2390,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					when {
 						index == 0 -> {
 							printKeyword("if")
-							groupParen {
+							parenGroup {
 								branch.condition.print()
 							}
 						}
@@ -2233,7 +2399,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 						
 						else -> {
 							printKeyword("else if")
-							groupParen {
+							parenGroup {
 								branch.condition.print()
 							}
 						}
@@ -2331,7 +2497,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			print("@", Type.label)
 		}
 		printKeyword("while")
-		groupParen {
+		parenGroup {
 			loop.condition.print()
 		}
 		bracedBlock {
@@ -2351,7 +2517,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 			loop.body?.print()
 		}
 		printKeyword("while")
-		groupParen {
+		parenGroup {
 			loop.condition.print()
 		}
 		
@@ -2387,7 +2553,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 	
 	override fun visitCatch(aCatch: IrCatch) = with(aCatch) {
 		printKeyword("catch")
-		groupParen { parameter.name.print(Type.valueParameter) }
+		parenGroup { parameter.name.print(Type.valueParameter) }
 		
 		bracedBlock {
 			result.print()
@@ -2516,11 +2682,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				IrStatementOrigin.SAFE_CALL -> {
 					val lhs = statements[0] as IrVariable
 					val rhs = statements[1] as IrWhen
-					val call = rhs.branches.last().result as? IrCall
-					if(call == null) {
-						statements.printJoin(statementGap)
-						return
-					}
+					val call = rhs.branches.last().result as IrCall
 					lhs.initializer?.print()
 					print("?.", Type.specialOperator)
 					// handle property(though there is only get, not set)
@@ -2567,7 +2729,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					
 					printKeyword("when")
 					
-					groupParen {
+					parenGroup {
 						if(variable.origin == IrDeclarationOrigin.IR_TEMPORARY_VARIABLE) // when(...)
 							variable.initializer!!.print()
 						else variable.print() // when(val NAME = ...)
@@ -2671,11 +2833,16 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					val destructionDeclarations = whileBlock.statements.drop(1).dropLast(1)
 					val original = whileBlock.statements.last()
 					
+					whileLoop.label?.let {
+						print(it, Type.label)
+						print("@", Type.label)
+					}
+					
 					printKeyword("for")
-					groupParen {
+					parenGroup {
 						if(destructionDeclarations.isEmpty())
 							print(looperDeclaration.name, Type.localVariable)
-						else groupParen { // TODO: support val (_ <- this, name..) = ...
+						else parenGroup { // TODO: support val (_ <- this, name..) = ...
 							destructionDeclarations.printJoin(",") { print((it as IrVariable).name, Type.localVariable) }
 						}
 						printKeyword("in")
@@ -2738,7 +2905,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 		
 		val statements = body?.statements?.toMutableList()
 		
-		grouping(prefix = {
+		group(prefix = {
 			print("{", Type.braces)
 			printSpace()
 			val parameters = valueParameters
@@ -2760,7 +2927,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 				parameters.printJoin(",") {
 					val destructuring = destructuringParameters[it.index]
 					if(destructuring == null) it.print()
-					else groupParen {
+					else parenGroup {
 						(0..destructuring.keys.max()!!).printJoin(",") {
 							val destructuringInner = destructuring[it]
 							if(destructuringInner == null) print("_", Type.valueParameter)
@@ -2826,7 +2993,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					groupExpr {
 						receiver.print()
 					}
-					groupParen {
+					parenGroup {
 						arguments.printJoin(",")
 					}
 				}
@@ -2834,7 +3001,7 @@ private class IrSourcePrinterVisitor(out: Appendable, val allowSpecialMarker: Bo
 					groupExpr {
 						receiver.print()
 					}
-					grouping("[", "]") {
+					group("[", "]") {
 						arguments.printJoin(",")
 					}
 				}

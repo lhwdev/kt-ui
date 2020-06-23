@@ -6,10 +6,13 @@ import com.lhwdev.ktui.plugin.compiler.util.scope
 import com.lhwdev.ktui.plugin.compiler.util.toIrType
 import org.jetbrains.kotlin.ir.builders.declarations.addValueParameter
 import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
 import org.jetbrains.kotlin.ir.descriptors.WrappedValueParameterDescriptor
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
 import org.jetbrains.kotlin.ir.expressions.IrGetValue
+import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionExpressionImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.symbols.IrValueParameterSymbol
 import org.jetbrains.kotlin.ir.symbols.impl.IrValueParameterSymbolImpl
@@ -24,8 +27,7 @@ class WidgetFunctionParamTransformer : IrElementTransformerVoid(), UiIrPhase {
 	private val remapStack = Stack<Map<IrValueParameterSymbol, IrValueParameterSymbol>>()
 	
 	override fun lower() {
-		+WidgetTypeTransformer()
-		target.transform(this, null)
+		target.transformChildrenVoid()
 	}
 	
 	override fun visitFunction(declaration: IrFunction) = with(declaration) {
@@ -34,6 +36,18 @@ class WidgetFunctionParamTransformer : IrElementTransformerVoid(), UiIrPhase {
 		}
 		
 		super.visitFunction(this)
+	}
+	
+	override fun visitFunctionExpression(expression: IrFunctionExpression): IrExpression {
+		expression.function.widgetMarker?.let {
+			return IrFunctionExpressionImpl(
+				expression.startOffset, expression.endOffset,
+				expression.type.mapToWidget(),
+				expression.function.withWidgetParameter(it) as IrSimpleFunction,
+				expression.origin
+			)
+		}
+		return super.visitFunctionExpression(expression)
 	}
 	
 	private fun IrFunction.withWidgetParameter(kind: WidgetTransformationKind): IrFunction {

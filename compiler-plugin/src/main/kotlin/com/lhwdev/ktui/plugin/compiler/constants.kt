@@ -23,10 +23,10 @@ object UiLibrary {
 	
 	val WIDGET = PACKAGE.child(Name.identifier("Widget"))
 	val INLINE_WIDGET = PACKAGE.child(Name.identifier("InlineWidget"))
+	val DEFAULT_PARAMETER = PACKAGE.child(Name.identifier("DefaultParameter"))
+	val WIDGET_FUNCTION_PURE_USAGE = PACKAGE.child(Name.identifier("WidgetFunctionPureUsage"))
 	
 	val BUILD_SCOPE = PACKAGE.child(Name.identifier("BuildScope"))
-	
-	val DEFAULT_PARAMETER = PACKAGE.child(Name.identifier("DefaultParameter"))
 	
 	val REMEMBER = PACKAGE.child(Name.identifier("remember"))
 	
@@ -47,8 +47,8 @@ object UiLibraryDescriptors {
 	val buildScope = module.resolveTopLevelClass(UiLibrary.BUILD_SCOPE, NoLookupLocation.FROM_BACKEND)!!
 	
 	val widget = module.resolveTopLevelClass(UiLibrary.WIDGET, NoLookupLocation.FROM_BACKEND)!!
-	
 	val defaultParameter = module.resolveTopLevelClass(UiLibrary.DEFAULT_PARAMETER, NoLookupLocation.FROM_BACKEND)!!
+	val widgetFunctionPureUsage = module.resolveTopLevelClass(UiLibrary.WIDGET_FUNCTION_PURE_USAGE, NoLookupLocation.FROM_BACKEND)!!
 	
 	val key = module.resolveTopLevelClass(UiLibrary.PACKAGE.child(Name.identifier("Key")), NoLookupLocation.FROM_BACKEND)!!
 	

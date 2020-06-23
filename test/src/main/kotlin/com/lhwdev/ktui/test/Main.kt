@@ -36,6 +36,18 @@ enum class TheEnum(val a: Int = 3) {
 val aNum
 	get() = 4
 
+class Hooray {
+	var test: Int = 3
+		get() = field + 3
+		internal set(value) {
+			field = value * 7
+		}
+	
+	var test2 = 3
+		get() = 123
+		private set
+}
+
 val Any.a get() = ""
 
 annotation class A(val ar: Array<String>)
@@ -72,6 +84,12 @@ fun WidgetWithLongParameters(
 }
 
 @Widget
+fun Hello(a: Int) {
+	Text("$a")
+	Hello(a)
+}
+
+@Widget
 fun Main() {
 	Text("Hello, world!") // TO WATCH: state for the default value
 	val a = nextId()
@@ -97,8 +115,9 @@ fun HT() {
 
 @Widget
 fun Main2() {
-	for(i in 0 until 10) {
+	outer@ for(i in 0 until 10) {
 		Text("$i")
+		if(aNum == 3) break@outer
 		
 		for(ii in 0..2) {
 			Abc(WidgetWithReturn())
@@ -133,6 +152,8 @@ fun Text(text: String, size: Int = 30, otherParam: Float = 1f) {
 	Draw {
 		println("Text! $text at $size")
 	}
+	
+	if(size == 0) Text("ERROR")
 }
 
 @Widget
@@ -142,13 +163,21 @@ fun Abc(arg: Int) {
 
 @Widget
 fun WidgetWithReturn(): Int {
-	if(aNum == 2)
-		EmptyWidget()
+//	if(aNum == 2)
+//		EmptyWidget()
 	if(aNum == 3) return -1
-	Proxy {
-		Text("Hell'o, world!")
-	}
+//	Proxy {
+//		Text("Hell'o, world!")
+//	}
 	return 123
+}
+
+val Empty: @Widget () -> Unit = @Widget {}
+
+@Widget
+fun NonPureProxy(child: @Widget () -> Unit) {
+	val childValue = if(aNum != 2) child else Empty
+	childValue()
 }
 
 @Widget

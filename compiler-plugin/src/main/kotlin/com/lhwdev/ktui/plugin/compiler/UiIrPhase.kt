@@ -12,27 +12,29 @@ interface UiIrPhase : IrScope {
 	
 	override val pluginContext: IrPluginContext get() = currentTransformation().pluginContext
 	override val moduleFragment: IrModuleFragment get() = currentTransformation().moduleFragment
-	override val target: IrElement get() = currentTransformation().target
+	override var target: IrElement
+		get() = currentTransformation().target
+		set(value) {
+			currentTransformation().target = value
+		}
 }
 
 abstract class AbstractUiIrPhase : UiIrPhase {
 	val currentLowering = currentTransformation()
 	override val pluginContext = currentLowering.pluginContext
 	override val moduleFragment = currentLowering.moduleFragment
-	override val target = currentLowering.target
+	override var target = currentLowering.target
+		set(value) {
+			field = value
+			currentLowering.target = value
+		}
 }
 
-inline fun uiIrPhase(name: String? = null, crossinline block: UiIrPhase.(target: IrElement) -> Unit) =
-	object : UiIrPhase {
+inline fun uiIrPhase(name: String? = null, crossinline block: UiIrPhase.() -> Unit): UiIrPhase =
+	object : AbstractUiIrPhase() {
 		override val phaseName: String? get() = name
-		val currentLowering = currentTransformation()
 		
 		override fun lower() {
-			val lowering = currentTransformation()
-			block(lowering.target)
+			block()
 		}
-		
-		override val pluginContext = currentLowering.pluginContext
-		override val moduleFragment = currentLowering.moduleFragment
-		override val target = currentLowering.target
 	}

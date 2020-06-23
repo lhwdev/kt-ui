@@ -12,7 +12,7 @@ object UiWritableSlices {
 		BasicWritableSlice(RewritePolicy.DO_NOTHING)
 	
 	val WIDGET_KIND: WritableSlice<IrFunction, WidgetTransformationKind> =
-		BasicWritableSlice(RewritePolicy.DO_NOTHING, true)
+		BasicWritableSlice(RewritePolicy.DO_NOTHING)
 	
 	val WIDGET_TRANSFORMATION_INFO: WritableSlice<IrFunction, WidgetTransformationInfo> =
 		BasicWritableSlice(RewritePolicy.DO_NOTHING)

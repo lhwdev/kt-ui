@@ -50,7 +50,7 @@ class WidgetCallTransformer : IrWidgetElementTransformerVoidScoped(), UiIrPhase 
 			isWidgetLambdaInvocation -> {
 				val realCount = valueArgumentsCount
 				val changedCount = widgetChangedParamsCount(realCount + 1)
-				var allCount = valueArgumentsCount + 2 + changedCount
+				var allCount = valueArgumentsCount + 1 + changedCount
 				if(symbol.descriptor.extensionReceiverParameter != null) allCount++
 				val functionClass = builtIns.getFunction(allCount + if(symbol.descriptor.extensionReceiverParameter == null) 0 else 1)
 				val newInvocation = functionClass.findFirstFunction("invoke") { it.valueParameters.size == allCount }.symbol.tryBind().owner as IrSimpleFunction
@@ -64,12 +64,6 @@ class WidgetCallTransformer : IrWidgetElementTransformerVoidScoped(), UiIrPhase 
 					parameters.drop(changedIndex).map { it.symbol },
 					null // lambda do not have any default values
 				)
-				
-				val newTypeArguments = listOfNotNull(symbol.descriptor.extensionReceiverParameter?.type?.toIrType()) +
-					typeArguments.requireNoNulls() +
-					UiLibraryDescriptors.buildScope.defaultType.toIrType() +
-					irBuiltIns.intType +
-					(0 until changedCount).map { irBuiltIns.intType }
 				
 				irInvoke(
 					functionSymbol = newInvocation.symbol,

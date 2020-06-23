@@ -7,20 +7,25 @@ import org.jetbrains.kotlin.ir.declarations.name
 import org.jetbrains.kotlin.ir.util.getPackageFragment
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
-import org.jetbrains.kotlin.name.FqName
 
 
-fun UiIntrinsicsTransformer() = uiIrPhase("UiIntrinsicsTransformer") { _ ->
-	try {
-		val currentScopePackage = FqName("com.lhwdev.ktui")
-		val file = moduleFragment.files.find { it.getPackageFragment()?.fqName == currentScopePackage && it.name == "bridge.kt" }!!
+fun UiIntrinsicsTransformer() = uiIrPhase("UiIntrinsicsTransformer") {
+	val libraryPackage = UiLibrary.PACKAGE
+	val file = moduleFragment.files.find { it.getPackageFragment()?.fqName == libraryPackage && it.name == "bridge.kt" }
+	if(file != null) +uiIrPhase("transform bridge.kt of ktui core library") {
 		file.transformChildrenVoid(object : IrElementTransformerVoid() {
 			override fun visitFunction(
 				declaration: IrFunction
 			): IrStatement = withBuilderScope(declaration) {
 				declaration.body = when(declaration.name.asString()) {
 					"currentScope" -> irExpressionBody(irGet(declaration.valueParameters.first()))
-					"nextId" -> irExpressionBody(irError("inline intrinsic"))
+					"nextId" -> irExpressionBody(irError("compiler intrinsic"))
+//					"nextId" -> irBlockBody {
+//						+irReturn(irReturnableBlock(irBuiltIns.intType) {
+//							+irReturn(irInt(0)).withLog { it.dumpColored() }
+//							+irReturn(irInt(1))
+//						})
+//					}
 					"bridgeCall" -> irBlockBody {
 						val buildScope = declaration.extensionReceiverParameter!!
 						val widget = declaration.valueParameters[0]
@@ -33,7 +38,19 @@ fun UiIntrinsicsTransformer() = uiIrPhase("UiIntrinsicsTransformer") { _ ->
 				super.visitFunction(declaration)
 			}
 		})
-	} catch(e: Throwable) {
-		// in the case of this, not compiling ui library, just client; ignore it
 	}
+
+
+//	// transform bridge function calls // nextId() is transformed in WidgetFunctionBodyTransformer
+//	target.transformChildrenVoid(object : IrWidgetElementTransformerVoidScoped() {
+//		override fun visitCall(expression: IrCall): IrExpression {
+//			val descriptor = expression.symbol.descriptor
+//			if(descriptor.containingDeclaration.fqNameSafe == libraryPackage) {
+//				when(descriptor.name.asString()) {
+//					"currentScope" -> return irGet(widgetScope.info.buildScopeParameter) // in fact, this is not needed
+//				}
+//			}
+//			return super.visitCall(expression)
+//		}
+//	})
 }

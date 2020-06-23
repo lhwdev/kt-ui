@@ -56,7 +56,7 @@ class WidgetStaticObserver : IrElementVisitor<DependType, Nothing?> {
 	
 	private fun IrElement.dependType() = accept(this@WidgetStaticObserver, null)
 	
-	fun dependsOn(target: IrSymbol): DependType {
+	private fun dependsOn(target: IrSymbol): DependType {
 		dependencies += target
 		return DependType.stateless
 	}
@@ -108,6 +108,9 @@ class WidgetStaticObserver : IrElementVisitor<DependType, Nothing?> {
 	
 	override fun visitClassReference(expression: IrClassReference, data: Nothing?) =
 		DependType.static
+	
+	override fun visitStringConcatenation(expression: IrStringConcatenation, data: Nothing?) =
+		expression.arguments.fold(DependType.static) { a, b -> a and b.dependType() }
 	
 	override fun visitBlock(expression: IrBlock, data: Nothing?) =
 		expression.statements.fold(DependType.static) { acc, statement -> acc and statement.dependType() }

@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrSymbolOwner
+import org.jetbrains.kotlin.ir.declarations.name
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.symbols.IrReturnTargetSymbol
@@ -19,10 +20,7 @@ import org.jetbrains.kotlin.ir.types.isNullable
 import org.jetbrains.kotlin.ir.types.isPrimitiveType
 import org.jetbrains.kotlin.ir.types.isUnit
 import org.jetbrains.kotlin.ir.types.withHasQuestionMark
-import org.jetbrains.kotlin.ir.util.IdSignature
-import org.jetbrains.kotlin.ir.util.IrSymbolVisitor
-import org.jetbrains.kotlin.ir.util.fqNameForIrSerialization
-import org.jetbrains.kotlin.ir.util.statements
+import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstance
@@ -127,7 +125,7 @@ class WidgetFunctionBodyTransformer : IrElementTransformerVoidScoped<WidgetFunct
 	val widgetScope get() = widgetScopeOrNull!!
 	
 	override fun lower() {
-		target.transform(this, null)
+		target.transformChildrenVoid()
 	}
 	
 	override fun visitFunctionNew(declaration: IrFunction) = with(declaration) {
@@ -324,6 +322,16 @@ class WidgetFunctionBodyTransformer : IrElementTransformerVoidScoped<WidgetFunct
 	private fun MyScope.Widget.getLocationId(statement: IrStatement) =
 		statement.startOffset + (locationIdCounter++ shl 32)
 	
+	
+	private val nextIdIntrinsic =
+		moduleFragment.files.find { it.getPackageFragment()?.fqName == UiLibrary.PACKAGE && it.name == "bridge.kt" }!!
+			.findDeclaration<IrFunction> { it.name.asString() == "nextId" }!!.symbol
+	
+	override fun visitCall(expression: IrCall): IrExpression {
+		if(expression.symbol == nextIdIntrinsic)
+			return irInt(widgetScope.getLocationId(expression))
+		return super.visitCall(expression)
+	}
 	
 	override fun visitGetValue(expression: IrGetValue): IrExpression {
 		scopeStack.asReversed().forEach {

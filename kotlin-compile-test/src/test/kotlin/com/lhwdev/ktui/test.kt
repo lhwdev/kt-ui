@@ -85,9 +85,9 @@ class Test {
 //				"""
 //				"D:/LHW/asm/app/new/com.asmx.core/compiler-test-template/source"
 //			""".trimIndent(),
-//				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\test\\src\\main\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
-				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\commonMain\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
-				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\androidMain\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\test\\src\\main\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+//				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\commonMain\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+//				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\androidMain\\kotlin").listFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
 			)
 		})
 		
