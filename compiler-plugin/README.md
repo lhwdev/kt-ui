@@ -103,12 +103,15 @@
     (actually there is no actual annotation: just meaning behavior)
   
 * v4 (not implemented yet)
-  - flat slot table: Currently building depends on `children` of `Element`.
-  - make `Element` more private api: Implementation of flat slot table will require this.
-  - optimize branches: for example, in `if(...) Widget1() else Widget2()`, if the condition changes,
-    locating the element may be more expensive.
-    
-    Solution: group them as 'replaceable group'
-  - support referencing widget function like: `::MyWidget`
-  - do not create Element instance for normal functional widgets
-  - remove `$id` parameter: put in `$buildScope.startExpr(..)`
+	- flat slot table: Currently building depends on `children` of `Element`.
+	- make `Element` more private api: Implementation of flat slot table will require this.
+	- optimize branches: for example, in `if(...) Widget1() else Widget2()`, if the condition changes, locating the
+	  element may be more expensive.
+
+	  Solution: group them as 'replaceable group'
+	- support referencing widget function like: `::MyWidget`
+	- do not create Element instance for normal functional widgets
+	- remove `$id` parameter: put in `$buildScope.startExpr(..)`
+
+plus: Yah! Backend IR became beta stage!  
+https://blog.jetbrains.com/kotlin/2021/02/the-jvm-backend-is-in-beta-let-s-make-it-stable-together/

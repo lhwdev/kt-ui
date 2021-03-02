@@ -1,4 +1,4 @@
-@file:Suppress("UNUSED_PARAMETER", "UNUSED_VARIABLE", "unused")
+@file:Suppress("UNUSED_PARAMETER", "UNUSED_VARIABLE", "unused", "UNREACHABLE_CODE")
 
 package com.lhwdev.ktui.test
 
@@ -23,7 +23,7 @@ class DelegationTest(a: String) : CharSequence by a
  */
 
 @Widget
-fun MyWidget(param: Int, paramWithDefault: Int = param + 3, defaultClass: Float = 3f, def: TheEnum = TheEnum.abc) {
+fun MyWidget(param: Int, paramWithDefault: Int = param + 3, defaultClass: Float = 3f, def: TheEnum? = null) {
 	Text("Hi", paramWithDefault)
 }
 
@@ -162,6 +162,9 @@ fun Abc(arg: Int) {
 }
 
 @Widget
+fun WidgetWithReturnAnother() = 123.also { return 88 }
+
+@Widget
 fun WidgetWithReturn(): Int {
 //	if(aNum == 2)
 //		EmptyWidget()
@@ -183,7 +186,7 @@ fun NonPureProxy(child: @Widget () -> Unit) {
 @Widget
 fun Proxy(child: @Widget () -> Unit) {
 	child()
-	
+	run { return }
 	val num = when(aNum) {
 		1 -> WidgetWithReturn()
 		WidgetWithReturn() -> 3

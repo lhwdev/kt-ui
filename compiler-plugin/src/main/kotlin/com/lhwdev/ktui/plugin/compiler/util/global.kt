@@ -1,24 +1,15 @@
 package com.lhwdev.ktui.plugin.compiler.util
 
+import com.lhwdev.ktui.plugin.compiler.UiLibrary
+import com.lhwdev.ktui.plugin.compiler.currentContext
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
+import java.util.WeakHashMap
 
 
-@PublishedApi
-internal var providedContext: IrPluginContext? = null
+inline val pluginContext: IrPluginContext get() = currentContext.pluginContext
 
-val pluginContext: IrPluginContext get() = providedContext!!
+inline val irBuiltIns get() = pluginContext.irBuiltIns
 
-inline val context get() = pluginContext
+private val sUiLibraryCache = WeakHashMap<IrPluginContext, UiLibrary>()
 
-inline val builtIns get() = context.builtIns
-inline val irBuiltIns get() = context.irBuiltIns
-
-
-inline fun provideContext(context: IrPluginContext, block: () -> Unit) {
-	providedContext = context
-	try {
-		block()
-	} finally {
-		providedContext = null
-	}
-}
+val UiLibrary: UiLibrary get() = sUiLibraryCache.getOrPut(pluginContext) { UiLibrary(pluginContext) }

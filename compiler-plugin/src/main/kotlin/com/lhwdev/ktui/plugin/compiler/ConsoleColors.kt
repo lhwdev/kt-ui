@@ -1,5 +1,6 @@
 package com.lhwdev.ktui.plugin.compiler
 
+
 object ConsoleColors {
 	// Reset
 	const val RESET = "\u001b[0m" // Text Reset

@@ -1,17 +1,21 @@
-import com.asm.build.kotlinVersion
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import com.lhwdev.build.*
 
 
 plugins {
 	kotlin("jvm")
-	id("org.jetbrains.intellij")
+	id("org.jetbrains.intellij") version "0.6.5"
 	id("com.github.johnrengelman.shadow") version "5.2.0"
+	
+	id("common-plugin")
+}
+
+kotlin {
+	setup()
 }
 
 
 dependencies {
-	implementation(kotlin("stdlib-jdk8"))
-	
 	implementation(project(":compiler-plugin"))
 	
 	compileOnly("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
@@ -20,14 +24,12 @@ dependencies {
 // See https://github.com/JetBrains/gradle-intellij-plugin/
 intellij {
 	pluginName = "kt-ui"
-	version = "2020.1"
+	version = "2020.3.2"
 	
-	setPlugins("java", "org.jetbrains.kotlin:1.4-M1-release-IJ2020.1-1@eap-next")
+	// https://plugins.jetbrains.com/plugin/6954-kotlin/versions/stable
+	setPlugins("java", "org.jetbrains.kotlin:203-1.4.30-release-IJ7148.5")
 }
 
-//afterEvaluate {
-//	configurations.forEach { println("\u001B[1m${it.name}\u001B[0m ${it.isCanBeResolved} ${it.extendsFrom.joinToString { "\u001B[1;31m${it.name}\u001B[0m" }} | ${it.allDependencies.joinToString { with(it) { "\u001B[0;32m$group:\u001B[1;34m$name\u001B[0m" } }} // ${if(it.isCanBeResolved)it.resolve().joinToString { "\u001B[92m${it.name}\u001B[0m" } else ""}") }
-//}
 tasks {
 	runIde {
 		classpath = files(named("shadowJar"))

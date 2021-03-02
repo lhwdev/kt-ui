@@ -1,14 +1,19 @@
 @file:Suppress("NOTHING_TO_INLINE")
+@file:OptIn(ObsoleteDescriptorBasedAPI::class)
 
 package com.lhwdev.ktui.plugin.compiler
 
-import com.lhwdev.ktui.plugin.compiler.util.irBuiltIns
-import com.lhwdev.ktui.plugin.compiler.util.symbol
-import com.lhwdev.ktui.plugin.compiler.util.toIrType
-import org.jetbrains.kotlin.backend.common.IrElementVisitorVoidWithContext
+import com.lhwdev.ktui.plugin.compiler.util.IrComponent
+import com.lhwdev.ktui.plugin.compiler.util.IrComponentVisitorVoidWithContext
+import com.lhwdev.ktui.plugin.compiler.util.dumpPreview
+import com.lhwdev.ktui.plugin.compiler.util.pluginContext
 import org.jetbrains.kotlin.backend.common.ScopeWithIr
+import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
+import org.jetbrains.kotlin.backend.common.extensions.IrPluginContextImpl
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
+import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
@@ -17,6 +22,7 @@ import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrIfThenElseImpl
 import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.types.impl.*
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
@@ -25,27 +31,102 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtLambdaArgument
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
+import org.jetbrains.kotlin.renderer.DescriptorRenderer
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
+import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.Variance
 import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.Stack
 
 
-private fun IrType.checkSubtypeOf(parent: IrType, irBuiltins: IrBuiltIns) =
+/**
+ * Aims to provide useful information to debug.
+ */
+
+private val IrMemberAccessExpression<*>.valueArguments: List<IrExpression?>
+	get() = object : AbstractList<IrExpression?>() {
+		override val size = valueArgumentsCount
+		override fun get(index: Int) = getValueArgument(index)
+	}
+
+
+private val IrMemberAccessExpression<*>.typeArguments: List<IrType?>
+	get() = object : AbstractList<IrType?>() {
+		override val size = typeArgumentsCount
+		override fun get(index: Int) = getTypeArgument(index)
+	}
+
+private fun IrType.replaceAnnotations(newAnnotations: List<IrConstructorCall>): IrType = when(this) {
+	is IrSimpleType -> IrSimpleTypeImpl(
+		originalKotlinType,
+		classifier,
+		hasQuestionMark,
+		arguments,
+		newAnnotations,
+		abbreviation
+	)
+	is IrErrorType -> IrErrorTypeImpl(
+		originalKotlinType,
+		newAnnotations,
+		(this as? IrErrorTypeImpl)?.variance ?: Variance.INVARIANT
+	)
+	is IrDynamicType -> IrDynamicTypeImpl(
+		originalKotlinType,
+		newAnnotations,
+		(this as? IrDynamicTypeImpl)?.variance ?: Variance.INVARIANT
+	)
+	else -> this
+}
+
+private fun IrType.replaceWithStarProjections(): IrType =
+	if(this is IrSimpleType) IrSimpleTypeImpl(
+		originalKotlinType,
+		classifier,
+		hasQuestionMark,
+		List(arguments.size) { IrStarProjectionImpl },
+		annotations,
+		abbreviation
+	)
+	else this
+
+private fun IrType.checkSubtypeOf(parent: IrType, irBuiltins: IrBuiltIns): Boolean =
 	if(this is IrSimpleType && parent is IrSimpleType) {
-		if(classifier is IrClassSymbol && parent.classifier is IrClassSymbol) replaceWithStarProjections().isSubtypeOf(parent.replaceWithStarProjections(), irBuiltins)
+		if(classifier is IrClassSymbol && parent.classifier is IrClassSymbol) replaceWithStarProjections().isSubtypeOf(
+			parent.replaceWithStarProjections(),
+			irBuiltins
+		)
 		else true // TODO: check this case
 	} else this == parent
 
 
-fun IrElement.dumpSrcColored(config: SourcePrintConfig = SourcePrintConfig.default) =
-	buildString {
-		patchDeclarationParents()
-		acceptVoid(IrAllSourcePrinterVisitor(this, config))
-	}
+fun IrElement.patchDeclarationParentsChildren() {
+	accept(object : IrElementVisitorVoid {
+		override fun visitElement(element: IrElement) {
+			val parent = element
+			if(parent is IrDeclarationParent) parent.acceptChildren(object : IrElementVisitorVoid {
+				override fun visitElement(element: IrElement) {
+					element.patchDeclarationParents(parent)
+				}
+			}, null)
+			else element.acceptChildren(this, null)
+		}
+	}, null)
+}
 
-fun IrElement.logSrcColored(config: SourcePrintConfig = SourcePrintConfig.default) {
-	patchDeclarationParents()
+fun IrElement.dumpSrcColored(
+	context: IrPluginContext = pluginContext,
+	config: SourcePrintConfig = SourcePrintConfig.default
+) = buildString {
+//		patchDeclarationParentsChildren()
+	acceptVoid(IrAllSourcePrinterVisitor(this, context, config))
+}
+
+fun IrElement.logSrcColored(
+	context: IrPluginContext = pluginContext,
+	config: SourcePrintConfig = SourcePrintConfig.default
+) {
+//	patchDeclarationParentsChildren()
 	fixIndents {
 		IrAllSourcePrinterVisitor(object : Appendable {
 			override fun append(csq: CharSequence): Appendable {
@@ -57,19 +138,24 @@ fun IrElement.logSrcColored(config: SourcePrintConfig = SourcePrintConfig.defaul
 				append(csq.substring(start, end))
 			
 			override fun append(c: Char) = append("$c")
-		}, config).let { acceptVoid(it) }
+		}, context, config).let { acceptVoid(it) }
 		logln()
 	}
 }
 
-fun IrElement.dumpSrcHeadColored(config: SourcePrintConfig = SourcePrintConfig.default) =
-	buildString {
-		patchDeclarationParents()
-		acceptVoid(IrDeclarationHeadPrinterVisitor(this, config))
-	}
+fun IrElement.dumpSrcHeadColored(
+	context: IrPluginContext = pluginContext,
+	config: SourcePrintConfig = SourcePrintConfig.default
+) = buildString {
+//		patchDeclarationParentsChildren()
+	acceptVoid(IrDeclarationHeadPrinterVisitor(this, context, config))
+}
 
-fun IrElement.logSrcHeadColored(config: SourcePrintConfig = SourcePrintConfig.default) {
-	patchDeclarationParents()
+fun IrElement.logSrcHeadColored(
+	context: IrPluginContext = pluginContext,
+	config: SourcePrintConfig = SourcePrintConfig.default
+) {
+//	patchDeclarationParentsChildren()
 	fixIndents {
 		IrDeclarationHeadPrinterVisitor(object : Appendable {
 			override fun append(csq: CharSequence): Appendable {
@@ -81,13 +167,16 @@ fun IrElement.logSrcHeadColored(config: SourcePrintConfig = SourcePrintConfig.de
 				append(csq.substring(start, end))
 			
 			override fun append(c: Char) = append("$c")
-		}, config).let { acceptVoid(it) }
+		}, context, config).let { acceptVoid(it) }
 		logln()
 	}
 }
 
-fun IrType.dumpColored(config: SourcePrintConfig = SourcePrintConfig.default) = buildString {
-	IrAllSourcePrinterVisitor(this, config).apply {
+fun IrType.dumpColored(
+	context: IrPluginContext = pluginContext,
+	config: SourcePrintConfig = SourcePrintConfig.default
+) = buildString {
+	IrAllSourcePrinterVisitor(this, context, config).apply {
 		print()
 	}
 }
@@ -95,12 +184,15 @@ fun IrType.dumpColored(config: SourcePrintConfig = SourcePrintConfig.default) = 
 fun String.decapitalizeFirst() = first().toLowerCase() + drop(1)
 
 
-val sDefaultFilterOrigins = listOf(IrDeclarationOrigin.FAKE_OVERRIDE)
+private val sDefaultFilterOrigins = listOf(IrDeclarationOrigin.FAKE_OVERRIDE)
 
 data class SourcePrintConfig(
 	val allowSpecialMarker: Boolean = true,
 	val debug: Boolean = false,
-	val originsToFilter: List<IrDeclarationOrigin> = sDefaultFilterOrigins
+	val originsToFilter: List<IrDeclarationOrigin> = sDefaultFilterOrigins,
+	val printAllOrigins: Boolean = false,
+	val allowNewLine: Boolean = true,
+	val autoBind: Boolean = true
 ) {
 	companion object {
 		val default = SourcePrintConfig()
@@ -114,7 +206,8 @@ private class Printer(val out: Appendable, val indentUnit: CharSequence) {
 	private var indentCache = ""
 	private var hasIndent = false
 	
-	fun print(vararg contents: CharSequence) {
+	@Suppress("NOTHING_TO_INLINE")
+	inline fun print(vararg contents: CharSequence) {
 		contents.forEach { print(it) }
 	}
 	
@@ -166,16 +259,17 @@ inline fun <T : Any> merge(a: T?, b: T?, merger: (T, T) -> T): T? = when {
 }
 
 
-private class IrAllSourcePrinterVisitor(out: Appendable, config: SourcePrintConfig)
-	: IrSourcePrinterVisitor(out, config) {
+private class IrAllSourcePrinterVisitor(out: Appendable, context: IrPluginContext, config: SourcePrintConfig) :
+	IrSourcePrinterVisitor(out, context, config) {
 	override val renderContent: Boolean get() = true
 	override val renderBody: Boolean get() = true
 }
 
-private class IrDeclarationHeadPrinterVisitor(out: Appendable, config: SourcePrintConfig)
-	: IrSourcePrinterVisitor(out, config) {
+private class IrDeclarationHeadPrinterVisitor(out: Appendable, context: IrPluginContext, config: SourcePrintConfig) :
+	IrSourcePrinterVisitor(out, context, config) {
 	override val renderContent: Boolean get() = false
 	override val renderBody: Boolean get() = false
+	override val allowAnnotationsNewLine: Boolean get() = false
 	
 	override fun visitBlockBody(body: IrBlockBody) {
 	}
@@ -193,8 +287,29 @@ private class IrDeclarationHeadPrinterVisitor(out: Appendable, config: SourcePri
  * If you enable debug flag on the constructor, then it prints some useful information and code
  * errors(not all the errors, only some errors so far).
  */
-private abstract class IrSourcePrinterVisitor(out: Appendable, val config: SourcePrintConfig) : IrElementVisitorVoidWithContext() {
-	private val printer = Printer(out, "\t")
+@OptIn(ObsoleteDescriptorBasedAPI::class)
+private abstract class IrSourcePrinterVisitor(
+	out: Appendable,
+	val context: IrPluginContext,
+	val config: SourcePrintConfig
+) : IrComponentVisitorVoidWithContext<ScopeWithIr>() {
+	override fun createScope(declaration: IrSymbolOwner) = ScopeWithIr(Scope(declaration.symbol), declaration)
+	
+	private val irBuiltIns: IrBuiltIns = context.irBuiltIns
+	private val linker = if(context is IrPluginContextImpl) context.linker else null // TODO
+	private val IrSymbol.ownerOrNull: IrSymbolOwner? get() = if(isBound) owner else null
+	private val <T : IrSymbolOwner> IrBindableSymbol<*, T>.ownerOrNull: T? get() = if(isBound) owner else null
+	private val <T : IrSymbol> T.bound: T
+		get() {
+			if(!isBound && config.autoBind) {
+				linker?.getDeclaration(this)
+			}
+			return this
+		}
+	
+	private fun KotlinType.toIrType(): IrType = context.typeTranslator.translateType(this)
+	
+	private val printer: Printer = Printer(out, "\t")
 	
 	val debug get() = config.debug
 	val allowSpecialMarker get() = config.allowSpecialMarker
@@ -235,7 +350,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	val groupStack = Stack<Group>().apply {
 		push(Group(Type.none, GroupInherit()))
 	}
-	inline val currentGroup get() = groupStack.peek()
+	inline val currentGroup: Group get() = groupStack.peek()
 	inline var currentInherit
 		get() = currentGroup.inherit
 		set(value) {
@@ -245,15 +360,6 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	fun mergeInherit(other: GroupInherit) {
 		val group = currentGroup
 		group.inherit = group.inherit.merge(other)
-	}
-	
-	inline fun <R> withScope(scope: ScopeWithIr, block: () -> R): R {
-		allScopes.add(scope)
-		return try {
-			block()
-		} finally {
-			allScopes.removeAt(allScopes.lastIndex)
-		}
 	}
 	
 	enum class Type(val ansi: AnsiItem?) {
@@ -328,8 +434,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				}
 			}
 			
-			if(hasHeadSpace) printer.print(" ")
-			printer.print((group.inherit.stylePrefix + newType.ansi).build(), content)
+			
+			printer.print(
+				(if(hasHeadSpace) " " else "") +
+					((group.inherit.stylePrefix + newType.ansi)?.toString() ?: "") +
+					content
+			)
 			lastSpace = tailType
 		}
 		
@@ -352,34 +462,50 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	fun compact() {
 		lastSpace = SpaceType.compact
 	}
+
+//	fun println() {
+//		printer.println()
+//		lastBlock = false
+//		lastSpace = SpaceType.none
+//	}
+
+//	fun println(content: Any?, type: Type) {
+//		print(content, type)
+//		println()
+//	}
 	
-	fun println() {
-		printer.println()
-		lastBlock = false
-		lastSpace = SpaceType.none
-	}
-	
-	fun println(content: Any?, type: Type) {
-		print(content, type)
-		println()
-	}
-	
-	inline fun group(prefix: CharSequence, postfix: CharSequence, type: Type = Type.separator, inherit: GroupInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
+	inline fun group(
+		prefix: CharSequence,
+		postfix: CharSequence,
+		type: Type = Type.separator,
+		inherit: GroupInherit = currentGroup.inherit,
+		addIndent: Boolean = false,
+		newLine: String? = null,
+		block: () -> Unit
+	) {
 		group({ print(prefix, type) }, { print(postfix, type) }, type, inherit, addIndent, newLine, block)
 	}
 	
-	inline fun group(prefix: () -> Unit, postfix: () -> Unit, type: Type = Type.separator, inherit: GroupInherit = currentGroup.inherit, addIndent: Boolean = false, newLine: Boolean = false, block: () -> Unit) {
+	inline fun group(
+		prefix: () -> Unit,
+		postfix: () -> Unit,
+		type: Type = Type.separator,
+		inherit: GroupInherit = currentGroup.inherit,
+		addIndent: Boolean = false,
+		newLine: String? = null,
+		block: () -> Unit
+	) {
 		groupStack.push(Group(type, inherit))
 		prefix()
 		if(addIndent) printer.pushIndent()
-		if(newLine) println()
+		if(newLine != null) none(newLine)
 		
 		try {
 			block()
 		} finally {
 			groupStack.pop()
 			if(addIndent) printer.popIndent()
-			if(newLine) println()
+			if(newLine != null) none(newLine)
 			postfix()
 		}
 	}
@@ -431,13 +557,26 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		printSeparator(")")
 	}
 	
-	inline fun bracedBlock(newLine: Boolean = true, type: Type = Type.separator, block: () -> Unit) {
+	inline fun bracedBlock(newLine: String?, type: Type = Type.separator, block: () -> Unit) {
 		group("{", "}", type, addIndent = true, newLine = newLine) {
 			block()
 		}
 	}
 	
-	inline fun parenGroup(addIndent: Boolean = false, newLine: Boolean = false, type: Type = Type.separator, block: () -> Unit) {
+	inline fun bracedBlockBody(newLine: String? = declarationNewLine, type: Type = Type.separator, block: () -> Unit) {
+		bracedBlock(newLine, type, block)
+	}
+	
+	inline fun bracedBlockCode(newLine: String? = statementNewLine, type: Type = Type.separator, block: () -> Unit) {
+		bracedBlock(newLine, type, block)
+	}
+	
+	inline fun parenGroup(
+		addIndent: Boolean = false,
+		newLine: String? = null,
+		type: Type = Type.separator,
+		block: () -> Unit
+	) {
 		group("(", ")", type, addIndent = addIndent, newLine = newLine) {
 			block()
 		}
@@ -551,8 +690,17 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		print(content, Type.keyword)
 	}
 	
-	inline fun printIdentifier(content: Any?) {
-		print(content, Type.identifier)
+	val allowedNotEscapedNames = Regex("[A-Za-z_]([A-Za-z_0-9])*")
+	
+	fun printIdentifier(content: Any?, type: Type = Type.identifier) {
+		var text = content.toString()
+		if(text.first() == '<') // special
+			print(text, type)
+		else {
+			if(!allowedNotEscapedNames.matches(text))
+				text = "`$text`"
+			print(text, type)
+		}
 	}
 	
 	inline fun printSeparator(content: Any?) {
@@ -580,6 +728,10 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		if(debug) provideInherit(GroupInherit(stylePrefix = Type.debug.ansi), block)
 	}
 	
+	inline fun ifDebug(block: () -> Unit) {
+		if(debug) block()
+	}
+	
 	fun errorScope() {
 		mergeInherit(GroupInherit(overrideAllType = Type.error))
 	}
@@ -588,16 +740,16 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		print(content, Type.error)
 	}
 	
-	fun Visibility.print(default: Visibility = Visibilities.PUBLIC) = when(this) {
+	fun DescriptorVisibility.print(default: DescriptorVisibility = DescriptorVisibilities.PUBLIC) = when(this) {
 		default -> ""
-		Visibilities.PUBLIC -> "public"
-		// Visibilities.DEFAULT_VISIBILITY // == public
-		Visibilities.PRIVATE -> "private"
-		Visibilities.INTERNAL -> "internal"
-		Visibilities.PROTECTED -> "protected"
-		Visibilities.LOCAL -> ""
-		Visibilities.INHERITED -> ""
-		Visibilities.INVISIBLE_FAKE -> ""
+		DescriptorVisibilities.PUBLIC -> "public"
+		// DescriptorVisibilities.DEFAULT_VISIBILITY // == public
+		DescriptorVisibilities.PRIVATE -> "private"
+		DescriptorVisibilities.INTERNAL -> "internal"
+		DescriptorVisibilities.PROTECTED -> "protected"
+		DescriptorVisibilities.LOCAL -> ""
+		DescriptorVisibilities.INHERITED -> ""
+		DescriptorVisibilities.INVISIBLE_FAKE -> ""
 		else -> "TODO: ${this.name.toLowerCase(Locale.ROOT)}"
 	}.print(Type.keyword)
 	
@@ -621,11 +773,11 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	fun IrType.print() {
 		when(this) {
 			is IrDynamicType -> {
-				annotations.printAnnotations(false)
+				annotations.printAnnotations(null)
 				print("dynamic", Type.lightKeyword)
 			}
 			is IrErrorType -> {
-				annotations.printAnnotations(false)
+				annotations.printAnnotations(null)
 				unknown("[ERROR]")
 			}
 			is IrSimpleType -> {
@@ -634,11 +786,13 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						val extensionAnnotation = kotlinPackageFqn.child(Name.identifier("ExtensionFunctionType"))
 						val parameterNameAnnotation = kotlinPackageFqn.child(Name.identifier("ParameterName"))
 						val isFirstExtension = annotations.hasAnnotation(extensionAnnotation)
-						val realAnnotations = annotations.filter { (it.symbol.descriptor as ConstructorDescriptor).constructedClass.fqNameSafe != extensionAnnotation }
-						realAnnotations.printAnnotations(false)
+						val realAnnotations =
+							annotations.filter { (it.symbol.descriptor as ConstructorDescriptor).constructedClass.fqNameSafe != extensionAnnotation }
+						realAnnotations.printAnnotations(null)
 						if(realAnnotations.isNotEmpty()) printSpace()
 						
-						val parameters = arguments.dropLast(1 /* return type */).let { if(isFirstExtension) it.drop(1) else it }
+						val parameters =
+							arguments.dropLast(1 /* return type */).let { if(isFirstExtension) it.drop(1) else it }
 						val returnType = arguments.last()
 						
 						if(isFirstExtension) {
@@ -652,7 +806,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 								val parameterName = type?.getAnnotation(parameterNameAnnotation)
 								
 								if(parameterName != null) {
-									print((parameterName.valueArguments.single() as IrConst<*>).value, Type.valueParameter)
+									print((parameterName.getValueArgument(0) as IrConst<*>).value, Type.valueParameter)
 									printSeparator(":")
 								}
 								
@@ -669,7 +823,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						return
 					}
 					
-					annotations.printAnnotations(false)
+					annotations.printAnnotations(null)
 					
 					classifier.print()
 					
@@ -685,7 +839,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				
 				val abbreviation = abbreviation
 				if(abbreviation != null) {
-					abbreviation.annotations.printAnnotations(false)
+					abbreviation.annotations.printAnnotations(null)
 					print(abbreviation.typeAlias.descriptor.name, Type.typeAlias)
 					if(arguments.isNotEmpty()) group("<", ">") {
 						abbreviation.arguments.printJoin(",") {
@@ -710,8 +864,14 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	fun IrClassifierSymbol.print() {
 		when(this) {
 			is IrClassSymbol ->
-				print(descriptor.name, if(descriptor.kind == ClassKind.INTERFACE) Type.interfaceClass else Type.classClass)
-			is IrTypeParameterSymbol -> print(descriptor.name, Type.typeParameter)
+				print(
+					descriptor.name,
+					if(descriptor.kind == ClassKind.INTERFACE) Type.interfaceClass else Type.classClass
+				)
+			is IrTypeParameterSymbol -> {
+				print(descriptor.name, Type.typeParameter)
+				descriptor.printOrigin()
+			}
 			else -> error(toString())
 		}
 	}
@@ -729,7 +889,9 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	fun List<IrConstructorCall>.printAnnotations(newLine: Boolean) {
+	open val allowAnnotationsNewLine get() = true
+	
+	fun List<IrConstructorCall>.printAnnotations(newLine: String?) {
 		if(isNotEmpty()) {
 			overrideType(Type.identifier, Type.annotationClass) {
 				if(size == 1) {
@@ -744,31 +906,97 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				}
 			}
 			
-			if(newLine) println()
+			if(allowAnnotationsNewLine) newLine?.let { none(it) }
 		}
 	}
 	
-	val filesGap = "\n\n\n"
-	val declarationGap = "\n\n"
-	val statementGap = "\n"
+	val filesGap = if(config.allowNewLine) "\n\n\n" else " /* FILES GAP */ "
+	val declarationGap = if(config.allowNewLine) "\n\n" else " "
+	val declarationNewLine = if(config.allowNewLine) "\n" else " "
+	val statementGap = if(config.allowNewLine) "\n" else "; "
+	val statementNewLine = if(config.allowNewLine) "\n" else "; "
 	
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	
 	
 	override fun visitElement(element: IrElement) {
 		unknown(element::class.java.simpleName)
+		if(element is IrComponent<*>) {
+			unknown("(irComponent)")
+			element.dumpPreview().print()
+		}
 		debug { element.check() }
 	}
 	
-	inline fun <T> statement(statement: T, block: T.() -> Unit) = group {
-		statement.block()
+	@Suppress("UNUSED_PARAMETER")
+	fun onError(target: IrElement, error: Throwable) {
+		printError("[error: $target]")
+		// throw error // DEBUG
 	}
 	
-	inline fun <T> declare(declaration: T, block: T.() -> Unit) =
-		statement(declaration, block)
+	inline fun <T : IrElement> element(element: T, block: T.() -> Unit) = group {
+		try {
+			element.block()
+		} catch(e: Throwable) {
+			onError(element, e)
+		}
+	}
 	
-	inline fun <T> expr(expression: T, block: T.() -> Unit) = group {
-		expression.block()
+	inline fun <T : IrStatement> statement(statement: T, block: T.() -> Unit) = group {
+		try {
+			statement.block()
+		} catch(e: Throwable) {
+			onError(statement, e)
+		}
+	}
+	
+	inline fun <T : IrDeclaration> declare(declaration: T, block: T.() -> Unit) {
+		statement(declaration, block)
+		
+		if(debug) {
+			val parent = scopeStack.getOrNull(scopeStack.lastIndex - 1)
+			if(parent != null && declaration.parent != parent)
+				printError("<- unexpected parent: ${declaration.parent.dumpSrcHeadColored(context, config)}")
+		}
+	}
+	
+	inline fun <T : IrExpression> expr(expression: T, block: T.() -> Unit) = group {
+		try {
+			expression.block()
+		} catch(e: Throwable) {
+			onError(expression, e)
+		}
+	}
+	
+	fun printLineComment(content: String, type: Type = Type.comment) {
+		if(config.allowNewLine) {
+			print("// $content", type)
+			none("\n")
+		} else printBlockComment(content, type)
+	}
+	
+	fun printBlockComment(content: String, type: Type = Type.comment) {
+		print("/* $content */", type)
+	}
+	
+	fun DeclarationDescriptor.printOrigin() {
+		if(config.printAllOrigins)
+			containingDeclaration?.run {
+				val name = name.asString()
+				var newName = when(this) {
+					is PackageFragmentDescriptor -> {
+						if(fqName == IrBuiltIns.KOTLIN_INTERNAL_IR_FQN) return // EQEQ, CHECK_NULL etc.
+						"package $fqName"
+					} // TODO
+					is ModuleDescriptor -> "module $name" // ??
+					else -> name
+				}
+				when(newName) {
+					"<init>" -> newName = "constructor"
+				}
+				printSpace()
+				debug("of $newName")
+			}
 	}
 	
 	
@@ -782,8 +1010,6 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	fun IrElement.check() {
 		if(set.contains(this)) printError(" <- duplicate IR node")
 		set.add(this)
-		
-		// Nothing to do.
 	}
 	
 	fun ensureTypesEqual(actualType: IrType, expectedType: IrType) {
@@ -811,8 +1037,8 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		for(overriddenSymbol in overriddenSymbols) {
 			val overriddenDeclaration = overriddenSymbol.ownerOrNull as? IrDeclarationWithVisibility
 				?: continue
-			if(overriddenDeclaration.visibility == Visibilities.PRIVATE) {
-				printError("<- overrides private declaration ${overriddenDeclaration.descriptor.dump()}")
+			if(overriddenDeclaration.visibility == DescriptorVisibilities.PRIVATE) {
+				printError("<- overrides private declaration ${DescriptorRenderer.COMPACT.render(overriddenDeclaration.descriptor)}")
 			}
 		}
 	}
@@ -846,16 +1072,16 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	/// >= file
 	
 	override fun visitModuleFragment(declaration: IrModuleFragment) {
-		println("// module ${declaration.name}", Type.comment)
+		printLineComment("module ${declaration.name}")
 		declaration.files.printJoin(filesGap)
 		
 		debug { declaration.check() }
 	}
 	
-	override fun visitFileNew(declaration: IrFile) {
-		println("// file ${declaration.name} (${declaration.fqName})", Type.comment)
-		declaration.declarations.printJoin(declarationGap)
-		debug { declaration.check() }
+	override fun visitFileNew(declaration: IrFile) = element(declaration) {
+		printLineComment("file $name ($fqName)")
+		declarations.printJoin(declarationGap)
+		debug { check() }
 	}
 	
 	override fun visitFieldNew(declaration: IrField) = declare(declaration) {
@@ -863,7 +1089,6 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		
 		debug {
 			check()
-			checkOverrides()
 		}
 	}
 	/// class
@@ -872,7 +1097,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		val isEnum = kind == ClassKind.ENUM_CLASS
 		
 		// head
-		annotations.printAnnotations(true)
+		annotations.printAnnotations(declarationNewLine)
 		visibility.print()
 		modality.print()
 		
@@ -901,7 +1126,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		
 		primaryConstructor?.let { it ->
 			val isCompactConstructor = it.annotations.isEmpty() &&
-				(it.visibility == Visibilities.PUBLIC || isEnum) &&
+				(it.visibility == DescriptorVisibilities.PUBLIC || isEnum) &&
 				!(it.isInline || it.isExpect || it.isExternal)
 			
 			if(!isCompactConstructor) {
@@ -935,7 +1160,9 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			declarations.filterIsInstance<IrOverridableDeclaration<*>>()
 				.filter { it.origin == IrDeclarationOrigin.DELEGATED_MEMBER }.forEach { delegatedMember ->
 					delegatedMember.overriddenSymbols.forEach {
-						delegatedMembers[(it.descriptor.containingDeclaration!! as ClassDescriptor).symbol] = delegatedMember
+						delegatedMembers[
+							context.symbolTable.referenceClassifier(it.descriptor.containingDeclaration!! as ClassDescriptor)
+						] = delegatedMember
 					}
 				}
 			
@@ -1000,11 +1227,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 							//      ... (arguments)
 							//    INSTANCE_INITIALIZER_CALL classDescriptor='CLASS CLASS name:Abc ...'
 							
-							val delegatingConstructorCall = primaryConstructor!!.body?.statements?.firstOrNull() as? IrDelegatingConstructorCall
+							val delegatingConstructorCall =
+								primaryConstructor!!.body?.statements?.firstOrNull() as? IrDelegatingConstructorCall
 							
 							superType.print() // OtherClass
 							delegatingConstructorCall?.printCallValueArguments()
-//							delegatingConstructorCall?.printCallTypeArguments() // already printed in type
+							// delegatingConstructorCall?.printCallTypeArguments() // already printed in type
 						}
 					}
 				}
@@ -1029,28 +1257,15 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				.filter { it != primaryConstructor && it !in constructorProperties }
 				.filter { it.origin != IrDeclarationOrigin.FAKE_OVERRIDE && it.origin != IrDeclarationOrigin.DELEGATED_MEMBER && it.origin != IrDeclarationOrigin.DELEGATE }
 			
-			if(isEnum) bracedBlock {
+			if(isEnum) bracedBlockBody {
 				declarationsToShow.filterIsInstance<IrEnumEntry>().printJoin({
 					printSeparator(",")
 					print(statementGap, Type.none)
 				}) { entry ->
-					val call = (entry.initializerExpression as IrExpressionBody).expression as IrEnumConstructorCall
-					print(entry.name, Type.enumClass)
-					call.printCallTypeArguments() // ??
-					if(call.valueArgumentsCount != 0)
-						call.printCallValueArguments()
-					
-					entry.correspondingClass?.let {
-						bracedBlock {
-							it.declarations
-								.filter { it.origin != IrDeclarationOrigin.FAKE_OVERRIDE }
-								.filter { it !is IrConstructor }
-								.printJoin(statementGap)
-						}
-					}
+					visitEnumEntry(entry)
 				}
 			}
-			else if(declarationsToShow.isNotEmpty()) bracedBlock {
+			else if(declarationsToShow.isNotEmpty()) bracedBlockBody {
 				declarationsToShow.printJoin(declarationGap)
 			}
 		}
@@ -1073,7 +1288,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					debug(" <- missing descriptors")
 					parenGroup {
 						missingDescriptors.printJoin(",") {
-							debug(it.dump())
+							debug(DescriptorRenderer.COMPACT.render(it))
 						}
 					}
 				}
@@ -1081,8 +1296,16 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitEnumEntry(declaration: IrEnumEntry) {
-		// ignore, already handled by visitClass
+	override fun visitEnumEntry(declaration: IrEnumEntry) = declare(declaration) {
+		val call = (declaration.initializerExpression as IrExpressionBody).expression as IrEnumConstructorCall
+		visitEnumConstructorCall(call)
+		declaration.correspondingClass?.let {
+			bracedBlockBody {
+				it.declarations
+					.filter { it.origin !in config.originsToFilter && it !is IrConstructor }
+					.printJoin(statementGap)
+			}
+		}
 	}
 	
 	fun List<IrProperty>.correspondingProperty(param: IrValueParameter) = find {
@@ -1097,10 +1320,10 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	// fun hello|
 	fun IrFunction.printFunctionHead() {
-		annotations.printAnnotations(true)
+		annotations.printAnnotations(declarationNewLine)
 		
 		var isOverride = false
-		var defaultVisibility = Visibilities.PUBLIC
+		var defaultVisibility = DescriptorVisibilities.PUBLIC
 		(this as? IrSimpleFunction)?.let {
 			if(overriddenSymbols.isNotEmpty()) {
 				isOverride = true
@@ -1141,7 +1364,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	// body
 	// NOT check for renderBody: it should have checked in advance
-	override fun visitBlockBody(body: IrBlockBody) = bracedBlock {
+	override fun visitBlockBody(body: IrBlockBody) = bracedBlockBody {
 		val statements = body.statements
 		if(statements.isNotEmpty()) {
 			statements.printJoin(statementGap, Type.none)
@@ -1159,12 +1382,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	fun IrElement.printBody() {
 		if(renderBody) print() else when(this) {
-			is IrBlockBody -> bracedBlock { printSkip() }
+			is IrBlockBody -> bracedBlock(newLine = null) { printSkip() }
 			is IrExpression -> {
 				printSeparator("=")
 				printSkip()
 			}
-			is IrSyntheticBody -> bracedBlock { printSkip() }
+			is IrSyntheticBody -> bracedBlock(newLine = null) { printSkip() }
 			else -> printSkip()
 		}
 	}
@@ -1214,7 +1437,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					print(":", Type.separator)
 					
 					val callName =
-						if(delegation.symbol == currentClass!!.scope.scopeOwnerSymbol) "this"
+						if(delegation.symbol == currentClassOrNull?.scope?.scopeOwnerSymbol) "this"
 						else "super"
 					
 					print(callName, Type.lightKeyword)
@@ -1308,7 +1531,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		val definedGetter = getter?.takeUnless { it.origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR }
 		val definedSetter = setter?.takeUnless { it.origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR }
 		
-		annotations.printAnnotations(true)
+		annotations.printAnnotations(declarationNewLine)
 		
 		visibility.print()
 		modality.print()
@@ -1333,6 +1556,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		
 		print(name, Type.property)
 		printSeparator(":")
+		printSpace()
 		descriptor.type.toIrType().print()
 		
 		// 2. body
@@ -1371,7 +1595,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 		
 		if(!isDelegated) {
-			if(definedSetter != null) println() // val prop: Type get() = ...\n set() = ... seems a little bit weird?
+			if(definedSetter != null) none(declarationNewLine) // val prop: Type get() = ...\n set() = ... seems a little bit weird?
 			
 			if(definedGetter != null || definedSetter != null) indented {
 				if(definedGetter != null) {
@@ -1402,8 +1626,8 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		printJoin(",")
 	}
 	
-	override fun visitValueParameterNew(declaration: IrValueParameter): Unit = with(declaration) {
-		annotations.printAnnotations(false)
+	override fun visitValueParameterNew(declaration: IrValueParameter): Unit = declare(declaration) {
+		annotations.printAnnotations(null)
 		
 		val isVararg = isVararg
 		if(isVararg) printKeyword("vararg")
@@ -1423,7 +1647,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	}
 	
 	
-	override fun visitTypeParameter(declaration: IrTypeParameter) {
+	override fun visitTypeParameter(declaration: IrTypeParameter) = declare(declaration) {
 		print(declaration.name, Type.typeParameter)
 		
 		val isNonEmpty = declaration.superTypes.isNotEmpty() &&
@@ -1438,7 +1662,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	}
 	
 	
-	override fun visitScript(declaration: IrScript) {
+	override fun visitScript(declaration: IrScript) = declare(declaration) {
 		unknown("<<SCRIPT>>")
 		super.visitScript(declaration)
 		
@@ -1547,7 +1771,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	override fun visitCall(expression: IrCall) = expr(expression) {
 		// in case of builtin operators
-		val function = symbol.tryBind().owner
+		val function = symbol.bound.owner
 		val descriptor = symbol.descriptor
 		val isInfix = descriptor.isInfix
 		val receiver = anyReceiver
@@ -1571,9 +1795,10 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			}
 			
 			val operatorName = getOperatorFromName(name)
-			fun printOperator() {
+			fun printOperator(type: Type = Type.specialOperator) {
 				printSpace()
-				print(operatorName, Type.specialOperator)
+				print(operatorName, type)
+				descriptor.printOrigin()
 				printSpace()
 			}
 			
@@ -1592,11 +1817,13 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				"invoke" -> {
 					printCallReceiver(false)
 					printCallValueArguments()
+					descriptor.printOrigin()
 				}
 				// get indexer
 				"get" -> {
 					printCallReceiver(false)
 					printCallValueArguments("[", "]", trailingLambdaCapable = false)
+					descriptor.printOrigin()
 				}
 				// set indexer
 				"set" -> {
@@ -1605,6 +1832,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						printCallValueArguments(function, valueArguments.dropLast(1))
 					}
 					print("=", Type.specialOperator)
+					descriptor.printOrigin()
 					valueArguments.last()!!.print()
 				}
 				// builtin static operators
@@ -1615,14 +1843,14 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				}
 				"iterator", "hasNext", "next", "compareTo" -> {
 					printCallReceiver()
-					print(operatorName, Type.function)
+					printOperator(Type.function)
 					printCallValueArguments()
 				}
 				else -> {
 					// component n
 					if(name.startsWith("component")) {
 						receiver?.printAsReceiver()
-						print(operatorName, Type.function)
+						printOperator(Type.function)
 						parenGroup {}
 					} else {
 						// else binary
@@ -1648,6 +1876,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			}
 			printSpace() // ensure spaces around infix function
 			print(name, Type.function)
+			descriptor.printOrigin()
 			printCallTypeArguments()
 			printSpace()
 			group {
@@ -1660,7 +1889,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 		
 		printCallReceiver()
-		val prop = (symbol.ownerOrNull as? IrSimpleFunction)?.correspondingPropertySymbol?.ownerOrNull
+		val prop = symbol.ownerOrNull?.correspondingPropertySymbol?.ownerOrNull
 		
 		when {
 			prop != null -> {
@@ -1668,6 +1897,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				print(propName, Type.property)
 				if(symbol.ownerOrNull == prop.setter) {
 					print("=", Type.specialOperator)
+					descriptor.printOrigin()
 					getValueArgument(0)?.print()
 				}
 			}
@@ -1678,7 +1908,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				print("!!", Type.specialOperator)
 			}
 			
-			origin == IrStatementOrigin.GET_PROPERTY -> {
+			origin == IrStatementOrigin.GET_PROPERTY && valueArgumentsCount == 0 -> {
 				// here, some bridge: java getValue()
 				val propName = function.name.asString()
 				val realPropNamePascal = when {
@@ -1686,8 +1916,8 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					propName.startsWith("is") -> propName.drop(2)
 					else -> {
 						print(propName, Type.function)
+						descriptor.printOrigin()
 						printCallTypeArguments()
-						printCallValueArguments()
 						printError("<- GET_PROPERTY without appropriate name: $propName")
 						return
 					}
@@ -1700,10 +1930,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				require(propName.startsWith("set"))
 				print(propName.drop(3).decapitalizeFirst(), Type.property)
 				print("=", Type.specialOperator)
+				descriptor.printOrigin()
 				valueArguments.single()!!.print()
 			}
 			else -> {
 				print(function.name, Type.function)
+				descriptor.printOrigin()
 				printCallTypeArguments()
 				printCallValueArguments()
 			}
@@ -1735,20 +1967,27 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		debug { check() }
 	}
 	
-	override fun visitEnumConstructorCall(expression: IrEnumConstructorCall) {
-		// ignore; handled by visitClass
+	override fun visitEnumConstructorCall(expression: IrEnumConstructorCall) = expr(expression) {
+		print((expression.symbol.owner.parent as IrDeclarationWithName).name, Type.enumClass)
+		expression.printCallTypeArguments() // ??
+		if(expression.valueArgumentsCount != 0)
+			expression.printCallValueArguments()
+		
 	}
 	
-	override fun visitDelegatingConstructorCall(expression: IrDelegatingConstructorCall) {
-		// ignore
+	override fun visitDelegatingConstructorCall(expression: IrDelegatingConstructorCall) = expr(expression) {
+		// normally, should be handled in advance in visitClassNew
+		// this is the best here
+		printKeyword("super")
+		expression.printCallValueArguments()
 		
 		debug {
 			expression.ensureTypeIs(irBuiltIns.unitType)
 		}
 	}
 	
-	override fun visitInstanceInitializerCall(expression: IrInstanceInitializerCall) {
-		// ignore
+	override fun visitInstanceInitializerCall(expression: IrInstanceInitializerCall) = expr(expression) {
+		unknown("<init>()")
 		
 		debug {
 			expression.ensureTypeIs(irBuiltIns.unitType)
@@ -1783,7 +2022,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 		
 		debug {
-			val function = symbol.tryBind().owner
+			val function = symbol.bound.owner
 			val expectedDispatch = function.dispatchReceiverParameter?.type
 			val actualDispatch = dispatchReceiver?.type
 			if(expectedDispatch == null) {
@@ -1834,7 +2073,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	}
 	
 	fun IrFunctionAccessExpression.printCallValueArguments(prefix: CharSequence = "(", postfix: CharSequence = ")", trailingLambdaCapable: Boolean = true) {
-		printCallValueArguments(symbol.tryBind().owner, valueArguments, prefix, postfix, trailingLambdaCapable)
+		printCallValueArguments(symbol.bound.owner, valueArguments, prefix, postfix, trailingLambdaCapable)
 	}
 	
 	fun printCallValueArguments(
@@ -1890,7 +2129,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					if(function.valueParameters.size > valueArguments.size) " <- valueParameters not provided:"
 					else " <- too much valueArguments:"
 				)
-				print(function.dumpSrcHeadColored(config))
+				none(function.dumpSrcHeadColored(context, config))
 				none(" << ")
 				none(valueArguments.size.toString())
 			} else {
@@ -2003,18 +2242,20 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		debug { expression.check() }
 	}
 	
-	override fun visitLocalDelegatedPropertyReference(expression: IrLocalDelegatedPropertyReference): Unit =
-		expr(expression) {
-			dispatchReceiver?.print()
-			print("::", Type.importantSeparator)
-			print(symbol.descriptor.name, Type.localVariable)
-			debug { expression.check() }
-		}
+	override fun visitLocalDelegatedPropertyReference(
+		expression: IrLocalDelegatedPropertyReference
+	): Unit = expr(expression) {
+		dispatchReceiver?.print()
+		print("::", Type.importantSeparator)
+		print(symbol.descriptor.name, Type.localVariable)
+		debug { expression.check() }
+	}
 	
 	override fun visitFunctionReference(expression: IrFunctionReference): Unit = expr(expression) {
 		dispatchReceiver?.print()
 		print("::", Type.importantSeparator)
 		print(symbol.descriptor.name, Type.function)
+		symbol.descriptor.printOrigin()
 		debug { expression.check() }
 	}
 	
@@ -2031,19 +2272,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	// field
 	override fun visitGetField(expression: IrGetField) = expr(expression) {
-		val receiver = receiver
-		val superQualifiedSymbol = superQualifierSymbol
+//		val superQualifiedSymbol = superQualifierSymbol
 		
-		when {
-			receiver != null -> receiver.printAsReceiver()
-			
-			superQualifiedSymbol != null -> { // TODO
-				superQualifiedSymbol.print()
-				printSeparator('.')
-			}
-		}
+		receiver?.printAsReceiver()
 		
 		print(symbol.descriptor.name, Type.property)
+		symbol.descriptor.printOrigin()
 		
 		debug {
 			expression.check()
@@ -2060,6 +2294,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	override fun visitSetField(expression: IrSetField) = expr(expression) {
 		receiver?.printAsReceiver()
 		print(symbol.descriptor.name, Type.property)
+		symbol.descriptor.printOrigin()
 		print("=", Type.specialOperator)
 		value.print()
 		
@@ -2070,12 +2305,15 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	}
 	
 	
-	override fun visitGetEnumValue(expression: IrGetEnumValue) {
-		print(expression.symbol.descriptor.name, Type.enumClass) // TODO
+	override fun visitGetEnumValue(expression: IrGetEnumValue) = expr(expression) {
+		val descriptor = symbol.descriptor
+		print(descriptor.containingDeclaration.name, Type.enumClass) // EnumClass
+		printSeparator(".") // .
+		print(descriptor.name, Type.identifier) // ENUM_VALUE
 		debug { expression.check() }
 	}
 	
-	override fun visitGetObjectValue(expression: IrGetObjectValue) {
+	override fun visitGetObjectValue(expression: IrGetObjectValue) = expr(expression) {
 		print(expression.symbol.descriptor.name, Type.objectClass)
 		
 		debug {
@@ -2099,13 +2337,14 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			printKeyword("this")
 			
 			// this@<outer scope name?>
-			val parent = expression.symbol.tryBind().owner.parent
+			val parent = expression.symbol.bound.owner.parent
 			if(parent is IrFunction && parent != currentFunction) {
 				// in case of lambda argument, its name is the name of the callee function:
 				// a.run { b.apply { this@run } }
 				if(parent.origin == IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA) {
 					val psi = parent.descriptor.findPsi()
-					val name = ((((psi?.parent?.parent as? KtLambdaArgument)?.parent) as? KtCallExpression)?.calleeExpression as? KtNameReferenceExpression)?.getReferencedName()
+					val name =
+						((((psi?.parent?.parent as? KtLambdaArgument)?.parent) as? KtCallExpression)?.calleeExpression as? KtNameReferenceExpression)?.getReferencedName()
 					name?.let {
 						compact()
 						print("@", Type.label)
@@ -2128,13 +2367,14 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		
 		
 		group {
-			// in case of closure
-			val parent = symbol.tryBind().owner.parent
-			val currentFunction = currentFunction?.irElement
+			// highlight closure
+			val parent = symbol.bound.owner.parent
+			val currentFunction = currentFunctionOrNull?.irElement
 			if(currentFunction != null && parent != currentFunction)
 				stylePrefix(Ansi.italic)
 			
 			print(symbol.descriptor.name, symbol.type)
+			symbol.descriptor.printOrigin()
 		}
 		
 		debug {
@@ -2143,8 +2383,9 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitSetVariable(expression: IrSetVariable) = expr(expression) {
+	override fun visitSetValue(expression: IrSetValue) = expr(expression) {
 		print(symbol.descriptor.name, symbol.type)
+		symbol.descriptor.printOrigin()
 		print("=", Type.specialOperator)
 		value.print()
 		
@@ -2263,7 +2504,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		
 		// only print the return statement directly if it is not a lambda
 		val label = labels[returnTargetSymbol]
-		if(returnTarget.name.asString() != "<anonymous>" || label != null) {
+		if(returnTargetSymbol.descriptor.name.asString() != "<anonymous>" || label != null) {
 			printKeyword("return")
 			if(label != null) {
 				print("@", Type.label)
@@ -2351,11 +2592,15 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	}
 	
 	override fun visitSuspendableExpression(expression: IrSuspendableExpression) {
-		TODO()
+		// suspend information is not visible for source code
+		debug { printBlockComment("suspend") }
+		expression.result.print() // TODO
 	}
 	
 	override fun visitSuspensionPoint(expression: IrSuspensionPoint) {
-		TODO()
+		// suspend information is not visible for source code
+		debug { printBlockComment("suspend") }
+		expression.result.print() // TODO
 	}
 	
 	/// branch / control flows
@@ -2407,7 +2652,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					
 					if(singleLine)
 						branch.result.print()
-					else bracedBlock {
+					else bracedBlockCode {
 						branch.result.print()
 					}
 				}
@@ -2416,7 +2661,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 				// stay updated with IrStatementOrigin.WHEN branch of visitBlock
 				
 				printKeyword("when")
-				bracedBlock {
+				bracedBlockCode {
 					branches.printJoin(statementGap) { branch ->
 						val condition = branch.condition
 						val result = branch.result
@@ -2439,7 +2684,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						}
 						
 						printSeparator("->")
-						if(result.braceNeeded) bracedBlock {
+						if(result.braceNeeded) bracedBlockCode {
 							result.print()
 						} else result.print()
 					}
@@ -2465,11 +2710,11 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 //	}
 	
 	// loops
-	override fun visitBreak(jump: IrBreak) {
+	override fun visitBreak(jump: IrBreak) = expr(jump) {
 		printKeyword("break")
-		if(jump.label != null) {
+		jump.label?.let {
 			print("@", Type.label)
-			print(jump.label, Type.label)
+			print(it, Type.label)
 		}
 		
 		debug {
@@ -2478,11 +2723,11 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitContinue(jump: IrContinue) {
+	override fun visitContinue(jump: IrContinue) = expr(jump) {
 		printKeyword("continue")
-		if(jump.label != null) {
+		jump.label?.let {
 			print("@", Type.label)
-			print(jump.label, Type.label)
+			print(it, Type.label)
 		}
 		
 		debug {
@@ -2491,16 +2736,16 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitWhileLoop(loop: IrWhileLoop) {
-		if(loop.label != null) {
-			print(loop.label, Type.label)
+	override fun visitWhileLoop(loop: IrWhileLoop) = expr(loop) {
+		loop.label?.let {
 			print("@", Type.label)
+			print(it, Type.label)
 		}
 		printKeyword("while")
 		parenGroup {
 			loop.condition.print()
 		}
-		bracedBlock {
+		bracedBlockCode {
 			loop.body?.print()
 		}
 		
@@ -2510,10 +2755,10 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitDoWhileLoop(loop: IrDoWhileLoop) {
+	override fun visitDoWhileLoop(loop: IrDoWhileLoop) = expr(loop) {
 		printKeyword("do")
 		
-		bracedBlock {
+		bracedBlockCode {
 			loop.body?.print()
 		}
 		printKeyword("while")
@@ -2529,9 +2774,9 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	/// try/catch
 	
-	override fun visitTry(aTry: IrTry) {
+	override fun visitTry(aTry: IrTry) = expr(aTry) {
 		printKeyword("try")
-		bracedBlock {
+		bracedBlockCode {
 			aTry.tryResult.print()
 		}
 		if(aTry.catches.isNotEmpty()) {
@@ -2539,7 +2784,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 		aTry.finallyExpression?.let {
 			printKeyword("finally")
-			bracedBlock {
+			bracedBlockCode {
 				it.print()
 			}
 		}
@@ -2551,18 +2796,18 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 		}
 	}
 	
-	override fun visitCatch(aCatch: IrCatch) = with(aCatch) {
+	override fun visitCatch(aCatch: IrCatch) = element(aCatch) {
 		printKeyword("catch")
-		parenGroup { parameter.name.print(Type.valueParameter) }
+		parenGroup { catchParameter.name.print(Type.valueParameter) }
 		
-		bracedBlock {
+		bracedBlockCode {
 			result.print()
 		}
 		
 		debug { aCatch.check() }
 	}
 	
-	override fun visitThrow(expression: IrThrow) {
+	override fun visitThrow(expression: IrThrow) = expr(expression) {
 		printKeyword("throw")
 		expression.value.print()
 		
@@ -2576,10 +2821,21 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 	
 	val IrBranch.isElse get() = this is IrElseBranch || condition.let { it is IrConst<*> && it.value == true }
 	
-	val IrMemberAccessExpression.anyReceiver get() = dispatchReceiver ?: extensionReceiver
+	val IrMemberAccessExpression<*>.anyReceiver get() = dispatchReceiver ?: extensionReceiver
 	
 	// containers
 	override fun visitBlock(expression: IrBlock): Unit = expr(expression) {
+		fun printDefault() {
+			unknown("irBlock")
+			if(origin != null) parenGroup(type = Type.unknown) {
+				unknown("origin = $origin")
+			}
+			
+			bracedBlockCode {
+				statements.printJoin(statementGap)
+			}
+		}
+		
 		try {
 			when(origin) {
 				IrStatementOrigin.POSTFIX_INCR -> {
@@ -2686,7 +2942,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					lhs.initializer?.print()
 					print("?.", Type.specialOperator)
 					// handle property(though there is only get, not set)
-					val prop = (call.symbol.ownerOrNull as? IrSimpleFunction)?.correspondingPropertySymbol?.ownerOrNull
+					val prop = call.symbol.ownerOrNull?.correspondingPropertySymbol?.ownerOrNull
 					when {
 						prop != null -> {
 							val propName = prop.name.asString()
@@ -2735,7 +2991,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						else variable.print() // when(val NAME = ...)
 					}
 					
-					bracedBlock {
+					bracedBlockCode {
 						fun IrExpression.printValue() {
 							when(this) {
 								// a, b, in range, is Any ... ->
@@ -2805,7 +3061,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 							} else condition.printValue()
 							
 							printSeparator("->")
-							if(result.braceNeeded) bracedBlock {
+							if(result.braceNeeded) bracedBlockCode {
 								result.print()
 							} else result.print()
 						}
@@ -2843,7 +3099,12 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						if(destructionDeclarations.isEmpty())
 							print(looperDeclaration.name, Type.localVariable)
 						else parenGroup { // TODO: support val (_ <- this, name..) = ...
-							destructionDeclarations.printJoin(",") { print((it as IrVariable).name, Type.localVariable) }
+							destructionDeclarations.printJoin(",") {
+								print(
+									(it as IrVariable).name,
+									Type.localVariable
+								)
+							}
 						}
 						printKeyword("in")
 						(iterator.initializer as IrCall).let {
@@ -2851,34 +3112,26 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 						}.print()
 					}
 					
-					bracedBlock {
+					bracedBlockCode {
 						original.print()
 					}
 				}
 				
-				else -> if(origin != null && debug) {
-					unknown("irBlock(origin = $origin)")
-					bracedBlock(type = Type.unknown) {
-						statements.printJoin(statementGap)
-					}
-				} else {
+				else -> if(origin != null && debug) printDefault() else {
 					if(this is IrReturnableBlock) {
 						val labelName = "label${labels.size}"
 						labels[symbol] = labelName
 						print("run", Type.specialOperator)
 						debug { debug("(<- IrReturnableBlock)") }
 						print("@$labelName", Type.label)
-						bracedBlock {
+						bracedBlockCode {
 							statements.printJoin(statementGap)
 						}
 					} else statements.printJoin(statementGap)
 				}
 			}
 		} catch(e: Throwable) { // by default, these values with these origins are expected, but some lowerings may change them
-			unknown("irBlock")
-			bracedBlock(type = Type.unknown) {
-				statements.printJoin(statementGap)
-			}
+			printDefault()
 		}
 		
 		debug { expression.check() }
@@ -2892,7 +3145,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					}
 					
 					override fun visitReturn(expression: IrReturn) {
-						if(expression.returnTarget != this@printAsLambda.descriptor)
+						if(expression.returnTargetSymbol != this@printAsLambda.symbol)
 							exists = true
 					}
 				}, null)
@@ -2911,7 +3164,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			val parameters = valueParameters
 			if(parameters.isNotEmpty() && parameters.singleOrNull()?.name?.toString() != "it") {
 				val destructuringParameters = mutableMapOf<Int, MutableMap<Int, IrValueDeclaration>>()
-				if(statements != null) while(true) {
+				if(statements != null) while(true) { // quite complex logic finding for parameter destructuring
 					if(parameters.firstOrNull()?.name?.isSpecial != true) break
 					val statement = statements.firstOrNull() as? IrVariable ?: break
 					val initializer = statement.initializer as? IrCall ?: break
@@ -2924,11 +3177,11 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 					cur[initializer.symbol.descriptor.name.asString().drop(9 /* "component" */).toInt() - 1] = statement
 					statements.removeAt(0)
 				}
-				parameters.printJoin(",") {
-					val destructuring = destructuringParameters[it.index]
-					if(destructuring == null) it.print()
+				parameters.printJoin(",") { parameter ->
+					val destructuring = destructuringParameters[parameter.index]
+					if(destructuring == null) parameter.print()
 					else parenGroup {
-						(0..destructuring.keys.max()!!).printJoin(",") {
+						(0..destructuring.keys.maxOrNull()!!).printJoin(",") {
 							val destructuringInner = destructuring[it]
 							if(destructuringInner == null) print("_", Type.valueParameter)
 							else print(destructuringInner.name, Type.valueParameter)
@@ -2939,7 +3192,7 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			}
 		}, postfix = {
 			print("}", Type.braces)
-		}, addIndent = true, newLine = true) {
+		}, addIndent = true, newLine = statementNewLine) {
 			statements?.printJoin(statementGap)
 		}
 	}
@@ -2957,75 +3210,74 @@ private abstract class IrSourcePrinterVisitor(out: Appendable, val config: Sourc
 			.filter { it !is IrConstructor }
 			.filter { it.origin != IrDeclarationOrigin.FAKE_OVERRIDE }
 		if(printableDeclarations.isNotEmpty()) {
-			bracedBlock {
-				printableDeclarations.printJoin(statementGap)
+			bracedBlockBody {
+				printableDeclarations.printJoin(declarationGap)
 			}
 		}
 	}
 	
 	
-	override fun visitComposite(expression: IrComposite) { // already handled, or TODO: just statement??
-		if(expression.origin != null && debug) {
-			unknown("composite(origin = ${expression.origin})")
-			bracedBlock {
-				expression.statements.printJoin(statementGap)
-			}
-		} else expression.statements.printJoin(statementGap)
+	override fun visitComposite(expression: IrComposite) { // generally added by
+		if(expression.origin != null && debug)
+			unknown("irComposite(origin = ${expression.origin})")
+		else unknown("irComposite")
+		
+		bracedBlockCode {
+			expression.statements.printJoin(statementGap)
+		}
 		
 		debug { expression.check() }
 	}
 	
 	// dynamic
 	
-	override fun visitDynamicMemberExpression(expression: IrDynamicMemberExpression) =
-		expr(expression) {
-			receiver.print()
-			printSeparator(".")
-			print(memberName, Type.dynamicMember)
-			
-			debug { check() }
-		}
+	override fun visitDynamicMemberExpression(expression: IrDynamicMemberExpression) = expr(expression) {
+		receiver.print()
+		printSeparator(".")
+		print(memberName, Type.dynamicMember)
+		
+		debug { check() }
+	}
 	
-	override fun visitDynamicOperatorExpression(expression: IrDynamicOperatorExpression): Unit =
-		expr(expression) {
-			when(operator) {
-				IrDynamicOperator.INVOKE -> {
-					groupExpr {
-						receiver.print()
-					}
-					parenGroup {
-						arguments.printJoin(",")
-					}
+	override fun visitDynamicOperatorExpression(expression: IrDynamicOperatorExpression): Unit = expr(expression) {
+		when(operator) {
+			IrDynamicOperator.INVOKE -> {
+				groupExpr {
+					receiver.print()
 				}
-				IrDynamicOperator.ARRAY_ACCESS -> {
-					groupExpr {
-						receiver.print()
-					}
-					group("[", "]") {
-						arguments.printJoin(",")
-					}
-				}
-				IrDynamicOperator.PREFIX_INCREMENT -> {
-					print("++", Type.specialOperator)
-					groupExpr {
-						receiver.print()
-					}
-				}
-				IrDynamicOperator.PREFIX_DECREMENT -> {
-					print("--", Type.specialOperator)
-					groupExpr {
-						receiver.print()
-					}
-				}
-				else -> {
-					groupExpr {
-						receiver.print()
-					}
-					print(operator.image, Type.specialOperator)
-					arguments.firstOrNull()?.print()
+				parenGroup {
+					arguments.printJoin(",")
 				}
 			}
-			
-			debug { check() }
+			IrDynamicOperator.ARRAY_ACCESS -> {
+				groupExpr {
+					receiver.print()
+				}
+				group("[", "]") {
+					arguments.printJoin(",")
+				}
+			}
+			IrDynamicOperator.PREFIX_INCREMENT -> {
+				print("++", Type.specialOperator)
+				groupExpr {
+					receiver.print()
+				}
+			}
+			IrDynamicOperator.PREFIX_DECREMENT -> {
+				print("--", Type.specialOperator)
+				groupExpr {
+					receiver.print()
+				}
+			}
+			else -> {
+				groupExpr {
+					receiver.print()
+				}
+				print(operator.image, Type.specialOperator)
+				arguments.firstOrNull()?.print()
+			}
 		}
+		
+		debug { check() }
+	}
 }

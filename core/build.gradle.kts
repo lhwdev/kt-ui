@@ -1,24 +1,26 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import com.lhwdev.build.*
 
 
 plugins {
 	kotlin("multiplatform")
-	
 	id("com.android.application")
-	id("com.asm.build.common-plugin")
+	
+	id("common-plugin")
 }
 
 
-//evaluationDependsOn(":compiler-plugin")
+kotlin {
+	setupCommon()
+	setupAndroid(project)
+}
 
-
-tasks.withType<KotlinCompile> {
-	kotlinOptions {
-//		useIR = true
+android {
+	compileSdkVersion(AndroidVariants.compileSdk)
+	
+	defaultConfig {
+		minSdkVersion(AndroidVariants.minSdk)
+		targetSdkVersion(AndroidVariants.targetSdk)
+		versionCode = AndroidVariants.versionCode
+		versionName = AndroidVariants.versionName
 	}
-}
-
-
-dependencies {
-//	kotlinCompilerPluginClasspath(project(":compiler-plugin"))
 }

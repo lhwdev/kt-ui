@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="CompilerConfiguration">
-    <bytecodeTargetLevel>
+    <bytecodeTargetLevel target="13">
       <module name="ASM_base-api.buildSrc" target="13" />
       <module name="ASM_base-api.buildSrc.main" target="13" />
       <module name="ASM_base-api.buildSrc.test" target="13" />
@@ -33,10 +33,17 @@
       <module name="ASM_base_api.buildSrc.test" target="1.8" />
       <module name="ASM_base_api.core.main" target="1.8" />
       <module name="ASM_base_api.core.test" target="1.8" />
-      <module name="ui.buildSrc.main" target="1.8" />
-      <module name="ui.buildSrc.test" target="1.8" />
+      <module name="compiler-plugin.kt-ui.compiler-plugin.main" target="13" />
+      <module name="compiler-plugin.kt-ui.compiler-plugin.test" target="13" />
+      <module name="kotlin-compile-test.kt-ui.kotlin-compile-test.main" target="13" />
+      <module name="kotlin-compile-test.kt-ui.kotlin-compile-test.test" target="13" />
+      <module name="test.kt-ui.test.main" target="13" />
+      <module name="ui.buildSrc" target="13" />
+      <module name="ui.buildSrc.main" target="13" />
+      <module name="ui.buildSrc.test" target="13" />
       <module name="ui.core.main" target="1.8" />
       <module name="ui.core.test" target="1.8" />
+      <module name="ui.kt-ui.test.test" target="13" />
     </bytecodeTargetLevel>
   </component>
 </project>

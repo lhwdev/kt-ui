@@ -3,6 +3,11 @@
 package com.lhwdev.ktui
 
 
+fun <T> hi(param: (Int, String) -> T) {
+	param(1, "ho")
+}
+
+
 class BuildScope {
 	// entry point from the plugin
 	fun start(locationId: Int) {

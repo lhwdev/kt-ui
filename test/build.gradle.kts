@@ -1,17 +1,10 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-
-
 plugins {
 	kotlin("jvm")
-	id("com.asm.build.common-plugin")
+	id("common-plugin")
 }
 
 evaluationDependsOn(":compiler-plugin")
 
-
-tasks.withType<KotlinCompile> {
-	kotlinOptions.useIR = true
-}
 
 //mainClassName = "com.lhwdev.ktui.test.TestKt"
 

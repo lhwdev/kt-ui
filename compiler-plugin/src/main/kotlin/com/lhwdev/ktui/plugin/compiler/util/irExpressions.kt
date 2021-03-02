@@ -2,37 +2,25 @@
 
 package com.lhwdev.ktui.plugin.compiler.util
 
-import com.lhwdev.ktui.plugin.compiler.tryBind
-import com.lhwdev.ktui.plugin.compiler.withLog
 import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptorImpl
-import org.jetbrains.kotlin.descriptors.annotations.Annotations
-import org.jetbrains.kotlin.descriptors.impl.AnonymousFunctionDescriptor
-import org.jetbrains.kotlin.descriptors.impl.ValueParameterDescriptorImpl
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.ir.IrStatement
-import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
-import org.jetbrains.kotlin.ir.backend.js.utils.OperatorNames
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.builders.Scope
-import org.jetbrains.kotlin.ir.builders.primitiveOp1
-import org.jetbrains.kotlin.ir.builders.primitiveOp2
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrFunctionImpl
-import org.jetbrains.kotlin.ir.declarations.impl.IrTypeParameterImpl
-import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
+import org.jetbrains.kotlin.ir.descriptors.WrappedSimpleFunctionDescriptor
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.symbols.impl.IrReturnableBlockSymbolImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
-import org.jetbrains.kotlin.ir.symbols.impl.IrTypeParameterSymbolImpl
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
-import org.jetbrains.kotlin.types.KotlinType
-import org.jetbrains.kotlin.types.TypeProjectionImpl
-import org.jetbrains.kotlin.types.replace
+import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.types.Variance
+import org.jetbrains.kotlin.util.OperatorNameConventions
 import kotlin.math.abs
 
 
@@ -40,15 +28,22 @@ import kotlin.math.abs
 
 // all implementation will be try not to get the owner of the symbol (getting it can cause errors so far).
 
-inline val IrElementScope.builtIns get() = context.builtIns
 inline val IrElementScope.irBuiltIns get() = context.irBuiltIns
 
 
 // null / non-null utilities
 fun IrElementScope.irIsNull(expression: IrExpression): IrExpression = irEquals(expression, irNull())
 
-fun IrElementScope.irAssertNonNull(target: IrExpression, type: IrType = target.type.withHasQuestionMark(false)): IrExpression =
-	irCall(irBuiltIns.checkNotNullSymbol, type = type, valueArguments = listOf(target), origin = IrStatementOrigin.EXCLEXCL)
+fun IrElementScope.irAssertNonNull(
+	target: IrExpression,
+	type: IrType = target.type.withHasQuestionMark(false)
+): IrExpression =
+	irCall(
+		irBuiltIns.checkNotNullSymbol,
+		type = type,
+		valueArguments = listOf(target),
+		origin = IrStatementOrigin.EXCLEXCL
+	)
 
 fun IrBuilderScope.irElvisOperator(left: IrExpression, right: IrExpression, type: IrType): IrExpression =
 	irBlock(type = type, origin = IrStatementOrigin.ELVIS) {
@@ -65,139 +60,76 @@ fun IrBuilderScope.irElvisOperator(left: IrExpression, right: IrExpression, type
 fun IrElementScope.irVararg(type: IrType, elements: List<IrVarargElement>) =
 	IrVarargImpl(startOffset, endOffset, context.symbols.array.typeWith(type), type, elements)
 
-private val sExtensionFunctionType by lazy {
-	AnnotationDescriptorImpl(
-		context.moduleDescriptor.resolveTopLevelClass(kotlinPackageFqn.child(Name.identifier("ExtensionFunctionType")), NoLookupLocation.FROM_BACKEND)!!.defaultType,
-		emptyMap(), SourceElement.NO_SOURCE
-	)
+private val sExtensionFunctionSymbol by lazy {
+	pluginContext.referenceClass(
+		kotlinPackageFqn.child(Name.identifier("ExtensionFunctionType"))
+	)!!
 }
 
 fun toFunctionType(
-	valueParameters: List<ValueParameterDescriptor>, extensionReceiverParameter: ReceiverParameterDescriptor? = null,
-	returnType: KotlinType, annotations: Annotations
-) =
-	builtIns.getFunction(valueParameters.size + extensionReceiverParameter.let { if(it == null) 0 else 1 })
-		.defaultType
-		.replace(
-			(listOfNotNull(extensionReceiverParameter) + valueParameters).map { TypeProjectionImpl(it.type) } + TypeProjectionImpl(returnType),
-			if(extensionReceiverParameter == null) annotations else Annotations.create(listOf(sExtensionFunctionType) + annotations))
-		.toIrType()
-
-//class FunctionDescriptorBuilder(val descriptor: FunctionDescriptor) {
-//	private var valueParameters: ValueParametersBuilder.() -> Unit = {}
-//	fun valueParameters(block: ValueParametersBuilder.() -> Unit) {
-//		valueParameters = block
-//	}
-//
-////	private var dispatchReceiverParameter: ((FunctionDescriptor) -> ReceiverParameterDescriptor)? = null
-////	fun dispatchReceiverParameter(type: KotlinType, annotations: Annotations = Annotations.EMPTY) {
-////		dispatchReceiverParameter = {
-////			ReceiverParameterDescriptorImpl(it, ClassValueReceiver(type.sclas, type, null), annotations)
-////		}
-////	} // TODO
-//
-//	private var extensionReceiverParameter: ((FunctionDescriptor) -> ReceiverParameterDescriptor)? = null
-//	fun extensionReceiverParameter(type: KotlinType, annotations: Annotations = Annotations.EMPTY) {
-//		extensionReceiverParameter = {
-//			ReceiverParameterDescriptorImpl(it, ExtensionReceiver(it, type, null), annotations)
-//		}
-//	}
-//}
-//
-//class ValueParametersBuilder(val descriptor: CallableDescriptor, val list: MutableList<ValueParameterDescriptor>) {
-//	private var index = 0
-//
-//	fun add(name: String, type: KotlinType, annotations: Annotations = Annotations.EMPTY, isCrossinline: Boolean = false, isNoinline: Boolean = false, varargElementType: KotlinType? = null) {
-//		list += ValueParameterDescriptorImpl(descriptor, null, index++, annotations, Name.guessByFirstCharacter(name), type, false, isCrossinline, isNoinline, varargElementType, SourceElement.NO_SOURCE)
-//	}
-//}
-
-inline fun valueParameterOf(descriptor: CallableDescriptor, index: Int, name: String, type: KotlinType, declaredDefaultValue: Boolean = false, annotations: Annotations = Annotations.EMPTY, isCrossinline: Boolean = false, isNoinline: Boolean = false, varargElementType: KotlinType? = null) =
-	ValueParameterDescriptorImpl(descriptor, null, index, annotations, Name.guessByFirstCharacter(name), type, declaredDefaultValue, isCrossinline, isNoinline, varargElementType, SourceElement.NO_SOURCE)
+	valueParameters: List<IrValueParameter>,
+	extensionReceiverParameter: IrValueParameter? = null,
+	returnType: IrType,
+	annotations: List<IrConstructorCall>
+) = irBuiltIns.function(valueParameters.size + extensionReceiverParameter.let { if(it == null) 0 else 1 })
+	.createType(
+		hasQuestionMark = false,
+		arguments = (listOfNotNull(extensionReceiverParameter) + valueParameters)
+			.map { makeTypeProjection(it.type, Variance.INVARIANT) } + makeTypeProjection(
+			returnType,
+			Variance.INVARIANT
+		)
+	)
+	.addAnnotations(
+		annotations + listOfNotNull(
+			if(extensionReceiverParameter == null) null else IrConstructorCallImpl.fromSymbolOwner(
+				sExtensionFunctionSymbol.defaultType, sExtensionFunctionSymbol.owner.constructors.first().symbol
+			)
+		)
+	)
 
 
+@OptIn(ObsoleteDescriptorBasedAPI::class)
 fun IrBuilderScope.irLambdaExpression(
-	valueParameters: (FunctionDescriptor) -> List<ValueParameterDescriptor> = { emptyList() },
-	extensionReceiverParameter: ((FunctionDescriptor) -> ReceiverParameterDescriptor)? = null,
-	typeParameters: (FunctionDescriptor) -> List<TypeParameterDescriptor> = { emptyList() },
-	returnType: KotlinType,
-	owner: DeclarationDescriptor = scope.scopeOwner,
-	annotations: Annotations = Annotations.EMPTY,
-	sourceElement: SourceElement = SourceElement.NO_SOURCE,
+	returnType: IrType,
+	annotations: List<IrConstructorCall> = emptyList(),
 	isSuspend: Boolean = false,
 	type: IrType? = null,
 	origin: IrStatementOrigin = IrStatementOrigin.LAMBDA,
-	body: IrBlockBodyBuilder.(IrFunction) -> Unit
+	init: IrBlockBodyBuilder.(IrFunction) -> Unit
 ): IrExpression {
-	val descriptor = AnonymousFunctionDescriptor(owner, annotations, CallableMemberDescriptor.Kind.SYNTHESIZED, sourceElement, isSuspend)
-	val createdValueParameters = valueParameters(descriptor)
-	val createdExtensionReceiverParameters = extensionReceiverParameter?.invoke(descriptor)
-	val createdTypeParameters = typeParameters(descriptor)
-	
-	descriptor.initialize(createdExtensionReceiverParameters, null, createdTypeParameters, createdValueParameters, returnType, Modality.FINAL, Visibilities.LOCAL)
-	
-	return irLambdaExpression(descriptor,
-		type ?: toFunctionType(createdValueParameters, createdExtensionReceiverParameters,
-			returnType, annotations), origin, body)
-}
-
-fun IrBuilderScope.irLambdaExpression(
-	descriptor: FunctionDescriptor,
-	type: IrType,
-	origin: IrStatementOrigin = IrStatementOrigin.LAMBDA,
-	body: IrBlockBodyBuilder.(IrFunction) -> Unit
-): IrExpression {
+	val descriptor = WrappedSimpleFunctionDescriptor()
 	val symbol = IrSimpleFunctionSymbolImpl(descriptor)
 	
-	val returnType = descriptor.returnType.toIrType()
-//
-	val lambda = IrFunctionImpl(
+	val function = IrFunctionImpl(
 		startOffset, endOffset,
-		IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA,
-		symbol,
-		returnType
-	).also {
-		it.parent = scope.getLocalDeclarationParent()
-		it.createParameterDeclarationsFromDescriptor()
-		it.body = irBuilderScope(it).irBlockBody { body(it) }
-	}
+		origin = IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA,
+		symbol = symbol,
+		name = SpecialNames.ANONYMOUS_FUNCTION,
+		visibility = DescriptorVisibilities.LOCAL,
+		modality = Modality.FINAL,
+		returnType = returnType,
+		isInline = false, isExternal = false, isTailrec = false,
+		isSuspend = isSuspend,
+		isOperator = false, isInfix = false, isExpect = false, isFakeOverride = false
+	)
 	
-	return irFunctionExpression(type, lambda, origin)
+	descriptor.bind(function)
+	
+	function.parent = scope.getLocalDeclarationParent()
+	function.body = irBuilderScope(function).irBlockBody { init(function) }
+	
+	return irFunctionExpression(
+		type ?: toFunctionType(function.valueParameters, function.extensionReceiverParameter, returnType, annotations),
+		function, origin
+	)
 }
 
-fun IrElementScope.irFunctionExpression(type: IrType, function: IrSimpleFunction, origin: IrStatementOrigin): IrFunctionExpression =
-	IrFunctionExpressionImpl(startOffset, endOffset, type, function, origin)
-
-fun IrFunction.createParameterDeclarationsFromDescriptor() {
-	fun ParameterDescriptor.irValueParameter() = IrValueParameterImpl(
-		this.startOffset ?: UNDEFINED_OFFSET,
-		this.endOffset ?: UNDEFINED_OFFSET,
-		IrDeclarationOrigin.DEFINED,
-		this,
-		type.toIrType(),
-		(this as? ValueParameterDescriptor)?.varargElementType?.toIrType()
-	).also {
-		it.parent = this@createParameterDeclarationsFromDescriptor
-	}
-	
-	fun TypeParameterDescriptor.irTypeParameter() = IrTypeParameterImpl(
-		this.startOffset ?: UNDEFINED_OFFSET,
-		this.endOffset ?: UNDEFINED_OFFSET,
-		IrDeclarationOrigin.DEFINED,
-		IrTypeParameterSymbolImpl(this)
-	).also {
-		it.parent = this@createParameterDeclarationsFromDescriptor
-	}
-	
-	dispatchReceiverParameter = descriptor.dispatchReceiverParameter?.irValueParameter()
-	extensionReceiverParameter = descriptor.extensionReceiverParameter?.irValueParameter()
-	
-	assert(valueParameters.isEmpty())
-	valueParameters = descriptor.valueParameters.map { it.irValueParameter() }
-	
-	assert(typeParameters.isEmpty())
-	typeParameters = descriptor.typeParameters.map { it.irTypeParameter() }
-}
+fun IrElementScope.irFunctionExpression(
+	type: IrType,
+	function: IrSimpleFunction,
+	origin: IrStatementOrigin
+): IrFunctionExpression = IrFunctionExpressionImpl(startOffset, endOffset, type, function, origin)
 
 
 // Calls
@@ -208,7 +140,7 @@ fun IrElementScope.irCall(
 	typeArguments: List<IrType?> = emptyList(),
 	dispatchReceiver: IrExpression? = null,
 	extensionReceiver: IrExpression? = null,
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null
 ): IrCall = irCall(callee, type, origin).also {
 	valueArguments.forEachIndexed { index, argument -> it.putValueArgument(index, argument) }
@@ -217,22 +149,22 @@ fun IrElementScope.irCall(
 	it.extensionReceiver = extensionReceiver
 }
 
-fun IrElementScope.irCallSimpleFunction(
-	callee: FunctionDescriptor,
+fun IrElementScope.irCall(
+	callee: IrSimpleFunction,
 	valueArguments: List<IrExpression?> = emptyList(),
 	typeArguments: List<IrType?> = emptyList(),
 	dispatchReceiver: IrExpression? = null,
 	extensionReceiver: IrExpression? = null,
-	type: IrType = callee.returnType.toIrType(),
+	type: IrType = callee.returnType,
 	origin: IrStatementOrigin? = null
 ) =
-	irCall(callee.simpleFunctionSymbol, valueArguments, typeArguments, dispatchReceiver, extensionReceiver, type, origin)
+	irCall(callee.symbol, valueArguments, typeArguments, dispatchReceiver, extensionReceiver, type, origin)
 
 fun IrElementScope.irConstructorCall(
 	callee: IrConstructorSymbol,
 	valueArguments: List<IrExpression?> = emptyList(),
 	typeArguments: List<IrType?> = emptyList(),
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null
 ): IrConstructorCall = irConstructorCall(callee, type, origin).also {
 	valueArguments.forEachIndexed { index, argument -> it.putValueArgument(index, argument) }
@@ -240,29 +172,43 @@ fun IrElementScope.irConstructorCall(
 }
 
 fun IrElementScope.irConstructorCall(
-	callee: ClassConstructorDescriptor,
+	callee: IrConstructor,
 	valueArguments: List<IrExpression?> = emptyList(),
 	typeArguments: List<IrType?> = emptyList(),
-	type: IrType = callee.returnType.toIrType(),
+	type: IrType = callee.returnType,
 	origin: IrStatementOrigin? = null
 ) = irConstructorCall(callee.symbol, valueArguments, typeArguments, type, origin)
 
-inline fun IrElementScope.irCall(callee: IrFunctionSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
+inline fun IrElementScope.irCall(
+	callee: IrFunctionSymbol,
+	type: IrType = callee.owner.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrFunctionAccessExpression.() -> Unit
+): IrFunctionAccessExpression =
 	irCall(callee, type, origin).apply(block)
 
-inline fun IrElementScope.irCall(callee: FunctionDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null, block: IrFunctionAccessExpression.() -> Unit): IrFunctionAccessExpression =
+inline fun IrElementScope.irCall(
+	callee: IrFunction,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrFunctionAccessExpression.() -> Unit
+): IrFunctionAccessExpression =
 	irCall(callee.symbol, type, origin).apply(block)
 
-fun IrElementScope.irCall(callee: FunctionDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null): IrFunctionAccessExpression =
+fun IrElementScope.irCall(
+	callee: IrFunction,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null
+): IrFunctionAccessExpression =
 	irCall(callee.symbol, type, origin)
 
 fun IrElementScope.irCall(
-	callee: FunctionDescriptor,
+	callee: IrFunction,
 	valueArguments: List<IrExpression?> = emptyList(),
 	typeArguments: List<IrType?> = emptyList(),
 	dispatchReceiver: IrExpression? = null,
 	extensionReceiver: IrExpression? = null,
-	type: IrType = callee.returnType.toIrType(),
+	type: IrType = callee.returnType,
 	origin: IrStatementOrigin? = null
 ) =
 	irCall(callee.symbol, valueArguments, typeArguments, dispatchReceiver, extensionReceiver, type, origin)
@@ -273,7 +219,7 @@ fun IrElementScope.irCall(
 	typeArguments: List<IrType?> = emptyList(),
 	dispatchReceiver: IrExpression? = null,
 	extensionReceiver: IrExpression? = null,
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null
 ) = irCall(callee, type, origin).also {
 	valueArguments.forEachIndexed { index, argument -> it.putValueArgument(index, argument) }
@@ -282,38 +228,64 @@ fun IrElementScope.irCall(
 	it.extensionReceiver = extensionReceiver
 }
 
-fun IrElementScope.irCall(callee: IrFunctionSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null): IrFunctionAccessExpression =
+fun IrElementScope.irCall(
+	callee: IrFunctionSymbol,
+	type: IrType = callee.owner.returnType,
+	origin: IrStatementOrigin? = null
+): IrFunctionAccessExpression =
 	when(callee) {
 		is IrSimpleFunctionSymbol -> irCall(callee, type, origin = origin)
 		is IrConstructorSymbol -> irConstructorCall(callee, type, origin = origin)
 		else -> error("unexpected function symbol $callee")
 	}
 
-@PublishedApi
-internal inline val IrFunctionSymbol.returnType
-	get() = if(isBound) owner.returnType else descriptor.returnType.toIrType()
-
-inline fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null, block: IrConstructorCall.() -> Unit): IrConstructorCall =
-	irConstructorCall(callee.symbol, type, origin, block)
-
-inline fun IrElementScope.irConstructorCall(callee: IrConstructorSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrConstructorCall.() -> Unit): IrConstructorCall =
+inline fun IrElementScope.irConstructorCall(
+	callee: IrConstructorSymbol,
+	type: IrType = callee.owner.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrConstructorCall.() -> Unit
+): IrConstructorCall =
 	irConstructorCall(callee, type, origin).apply(block)
 
-fun IrElementScope.irConstructorCall(callee: ClassConstructorDescriptor, type: IrType = callee.returnType.toIrType(), origin: IrStatementOrigin? = null): IrConstructorCall =
+inline fun IrElementScope.irConstructorCall(
+	callee: IrConstructor,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrConstructorCall.() -> Unit
+): IrConstructorCall =
+	irConstructorCall(callee, type, origin).apply(block)
+
+fun IrElementScope.irConstructorCall(
+	callee: IrConstructor,
+	type: IrType = callee.returnType,
+	origin: IrStatementOrigin? = null
+): IrConstructorCall =
 	irConstructorCall(callee.symbol, type, origin)
 
-fun IrElementScope.irConstructorCall(callee: IrConstructorSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null): IrConstructorCall =
-	IrConstructorCallImpl.fromSymbolDescriptor(startOffset, endOffset, type, callee, origin)
+fun IrElementScope.irConstructorCall(
+	callee: IrConstructorSymbol,
+	type: IrType = callee.owner.returnType,
+	origin: IrStatementOrigin? = null
+): IrConstructorCall =
+	IrConstructorCallImpl.fromSymbolOwner(type, callee, origin)
 
-inline fun IrElementScope.irCall(callee: IrSimpleFunctionSymbol, type: IrType = callee.returnType, origin: IrStatementOrigin? = null, block: IrCall.() -> Unit): IrCall =
+inline fun IrElementScope.irCall(
+	callee: IrSimpleFunctionSymbol,
+	type: IrType = callee.owner.returnType,
+	origin: IrStatementOrigin? = null,
+	block: IrCall.() -> Unit
+): IrCall =
 	irCall(callee, type, origin).apply(block)
 
 fun IrElementScope.irCall(
 	callee: IrSimpleFunctionSymbol,
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null,
 	superQualifierSymbol: IrClassSymbol? = null
-): IrCall = IrCallImpl(startOffset, endOffset, type, callee, origin, superQualifierSymbol)
+): IrCall = IrCallImpl.fromSymbolOwner(
+	startOffset, endOffset,
+	type = type, symbol = callee, origin = origin, superQualifierSymbol = superQualifierSymbol
+)
 
 fun IrElementScope.irDelegatingConstructorCall(callee: IrConstructor): IrDelegatingConstructorCall =
 	IrDelegatingConstructorCallImpl(
@@ -322,7 +294,7 @@ fun IrElementScope.irDelegatingConstructorCall(callee: IrConstructor): IrDelegat
 	)
 
 fun IrElementScope.irInstanceInitializerCall(classSymbol: IrClassSymbol): IrInstanceInitializerCall =
-	IrInstanceInitializerCallImpl(startOffset, endOffset, classSymbol, classSymbol.descriptor.defaultType.toIrType())
+	IrInstanceInitializerCallImpl(startOffset, endOffset, classSymbol, classSymbol.defaultType)
 
 sealed class IrSafeCallReceiver(val expression: IrExpression) {
 	class Extension(expression: IrExpression) : IrSafeCallReceiver(expression)
@@ -332,7 +304,7 @@ sealed class IrSafeCallReceiver(val expression: IrExpression) {
 fun IrBuilderScope.irSafeCall(
 	callee: IrSimpleFunctionSymbol,
 	safeReceiver: IrSafeCallReceiver,
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null,
 	block: IrCall.() -> Unit
 ): IrExpression = irBlock(type = type, origin = IrStatementOrigin.SAFE_CALL) {
@@ -350,7 +322,7 @@ fun IrBuilderScope.irSafeCall(
 	safeReceiver: IrSafeCallReceiver,
 	dispatchReceiver: IrExpression? = null,
 	extensionReceiver: IrExpression? = null,
-	type: IrType = callee.returnType,
+	type: IrType = callee.owner.returnType,
 	origin: IrStatementOrigin? = null,
 	block: (IrCall.() -> Unit)? = null
 ) = irSafeCall(callee, safeReceiver, type, origin) {
@@ -381,31 +353,64 @@ fun IrElementScope.irInvoke(
 	valueArguments: List<IrExpression>,
 	valueParametersCount: Int = valueArguments.size
 ) =
-	irInvoke(functionalTypeReceiver = irGet(functionalTypeReceiver, origin = IrStatementOrigin.VARIABLE_AS_FUNCTION),
-		valueArguments = valueArguments, valueParametersCount = valueParametersCount)
+	irInvoke(
+		functionalTypeReceiver = irGet(functionalTypeReceiver, origin = IrStatementOrigin.VARIABLE_AS_FUNCTION),
+		valueArguments = valueArguments, valueParametersCount = valueParametersCount
+	)
 
 fun IrElementScope.irInvoke(
 	functionalTypeReceiver: IrExpression,
 	valueArguments: List<IrExpression>,
 	valueParametersCount: Int = valueArguments.size
 ) = irInvoke(
-	functionSymbol = builtIns.getFunction(valueParametersCount).findFirstFunction("invoke") { it.valueParameters.size == valueParametersCount }.simpleFunctionSymbol,
+	functionSymbol = irBuiltIns.function(valueParametersCount).getSimpleFunction("invoke")!!,
 	functionalTypeReceiver = functionalTypeReceiver,
-	valueArguments = valueArguments,
+	valueArguments = valueArguments
 )
 
 // Reference
 
-fun IrElementScope.irReference(target: IrSymbol, type: IrType, origin: IrStatementOrigin? = null): IrDeclarationReference =
+fun IrElementScope.irReference(
+	target: IrSymbol,
+	type: IrType,
+	origin: IrStatementOrigin? = null
+): IrDeclarationReference =
 	when(target) {
 		is IrClassSymbol ->
-			IrClassReferenceImpl(startOffset, endOffset, type, target, target.descriptor.defaultType.toIrType())
-		is IrFunctionSymbol ->
-			target.descriptor.let { descriptor -> IrFunctionReferenceImpl(startOffset, endOffset, type, target, descriptor.typeParametersCount, descriptor.valueParameters.size, origin = origin) }
-		is IrPropertySymbol ->
-			target.tryBind().owner.let { owner -> IrPropertyReferenceImpl(startOffset, endOffset, type, target, target.descriptor.typeParametersCount, owner.backingField?.symbol, owner.getter?.symbol, owner.setter?.symbol, origin) }
-		is IrLocalDelegatedPropertySymbol ->
-			target.tryBind().owner.let { owner -> IrLocalDelegatedPropertyReferenceImpl(startOffset, endOffset, type, target, owner.delegate.symbol, owner.getter.symbol as IrSimpleFunctionSymbol, owner.setter?.symbol as IrSimpleFunctionSymbol, origin) }
+			IrClassReferenceImpl(startOffset, endOffset, type, target, target.defaultType)
+		is IrFunctionSymbol -> IrFunctionReferenceImpl.fromSymbolOwner(
+			startOffset, endOffset,
+			type = type, symbol = target,
+			origin = origin,
+			reflectionTarget = null,
+			typeArgumentsCount = target.owner.typeParameters.size
+		)
+		is IrPropertySymbol -> target.owner.let { owner ->
+			IrPropertyReferenceImpl(
+				startOffset,
+				endOffset,
+				type = type,
+				symbol = target,
+				typeArgumentsCount = (type as? IrSimpleType)?.arguments?.size
+					?: 0, // reference: org.jetbrains.kotlin.fir.backend.generators.CallAndReferenceGenerator:111
+				field = owner.backingField?.symbol,
+				getter = owner.getter?.symbol,
+				setter = owner.setter?.symbol,
+				origin = origin
+			)
+		}
+		is IrLocalDelegatedPropertySymbol -> target.owner.let { owner ->
+			IrLocalDelegatedPropertyReferenceImpl(
+				startOffset,
+				endOffset,
+				type,
+				target,
+				owner.delegate.symbol,
+				owner.getter.symbol,
+				owner.setter?.symbol,
+				origin
+			)
+		}
 		else -> error("unexpected symbol $target")
 	}
 
@@ -417,7 +422,7 @@ fun IrElementScope.irGet(variable: IrValueDeclaration, origin: IrStatementOrigin
 
 fun IrElementScope.irGet(
 	symbol: IrValueSymbol,
-	type: IrType = if(symbol.isBound) symbol.owner.type else symbol.descriptor.type.toIrType(),
+	type: IrType = symbol.owner.type,
 	origin: IrStatementOrigin? = null
 ): IrGetValue = IrGetValueImpl(startOffset, endOffset, type, symbol, origin)
 
@@ -429,23 +434,21 @@ fun IrElementScope.irGet(type: IrType, receiver: IrExpression?, getterSymbol: Ir
 		startOffset, endOffset,
 		type,
 		getterSymbol as IrSimpleFunctionSymbol,
-		typeArgumentsCount = getterSymbol.descriptor.typeParameters.size,
+		typeArgumentsCount = getterSymbol.owner.typeParameters.size,
 		valueArgumentsCount = 0,
 		origin = IrStatementOrigin.GET_PROPERTY
 	).apply {
 		dispatchReceiver = receiver
 	}
 
-fun IrElementScope.irGetObject(
-	classSymbol: IrClassSymbol,
-	type: IrType = if(classSymbol.isBound) classSymbol.defaultType else classSymbol.descriptor.defaultType.toIrType()
-): IrGetObjectValue = IrGetObjectValueImpl(startOffset, endOffset, type, classSymbol)
+fun IrElementScope.irGetObject(classSymbol: IrClassSymbol, type: IrType = classSymbol.defaultType): IrGetObjectValue =
+	IrGetObjectValueImpl(startOffset, endOffset, type, classSymbol)
 
 
 fun IrElementScope.irSet(variable: IrVariable, value: IrExpression) = irSet(variable.symbol, value)
 
 fun IrElementScope.irSet(variable: IrVariableSymbol, value: IrExpression) =
-	IrSetVariableImpl(startOffset, endOffset, irBuiltIns.unitType, variable, value, IrStatementOrigin.EQ)
+	IrSetValueImpl(startOffset, endOffset, irBuiltIns.unitType, variable, value, IrStatementOrigin.EQ)
 
 fun IrElementScope.irSet(receiver: IrExpression?, field: IrField, value: IrExpression) =
 	IrSetFieldImpl(startOffset, endOffset, field.symbol, receiver, value, irBuiltIns.unitType)
@@ -472,7 +475,8 @@ fun IrElementScope.irSet(
 fun IrElementScope.irThrow(value: IrExpression): IrThrow =
 	IrThrowImpl(startOffset, endOffset, value.type, value)
 
-class IrTryBuilder(override val startOffset: Int, override val endOffset: Int, override val scope: Scope) : IrBuilderScope {
+class IrTryBuilder(override val startOffset: Int, override val endOffset: Int, override val scope: Scope) :
+	IrBuilderScope {
 	@PublishedApi
 	internal lateinit var expression: IrTryImpl
 	
@@ -483,7 +487,11 @@ class IrTryBuilder(override val startOffset: Int, override val endOffset: Int, o
 		expression = expr
 	}
 	
-	inline fun catchBlock(catchType: IrType, catchParameterName: String? = null, body: IrBlockBuilder.(catchParameter: IrVariable) -> Unit) {
+	inline fun catchBlock(
+		catchType: IrType,
+		catchParameterName: String? = null,
+		body: IrBlockBuilder.(catchParameter: IrVariable) -> Unit
+	) {
 		val catchParameter = irVariable(catchParameterName ?: "catchParameter", catchType)
 		expression.catches += IrCatchImpl(startOffset, endOffset, catchParameter, irBlock { body(catchParameter) })
 	}
@@ -507,12 +515,21 @@ inline class IrWhenBuilder(val expression: IrWhen) {
 	}
 	
 	fun orElse(then: IrExpression) {
-		expression.branches += IrElseBranchImpl(expression.startOffset, expression.endOffset, expression.scope.irTrue(), then)
+		expression.branches += IrElseBranchImpl(
+			expression.startOffset,
+			expression.endOffset,
+			expression.scope.irTrue(),
+			then
+		)
 	}
 }
 
 
-inline fun IrElementScope.irWhen(type: IrType, origin: IrStatementOrigin? = IrStatementOrigin.WHEN, block: IrWhenBuilder.() -> Unit): IrWhen =
+inline fun IrElementScope.irWhen(
+	type: IrType,
+	origin: IrStatementOrigin? = IrStatementOrigin.WHEN,
+	block: IrWhenBuilder.() -> Unit
+): IrWhen =
 	IrWhenBuilder(IrWhenImpl(startOffset, endOffset, type, origin)).apply(block).expression
 
 inline fun IrBuilderScope.irWhenSubject(
@@ -522,14 +539,27 @@ inline fun IrBuilderScope.irWhenSubject(
 	origin: IrStatementOrigin? = null,
 	block: IrWhenBuilder.(subject: IrVariable) -> Unit
 ) = irBlock(type = type, origin = IrStatementOrigin.WHEN) {
-	val subjectVar = if(subjectName == null) irTemporary(subject, nameHint = "subject") else irVariable(subjectName, subject.type, initializer = subject)
+	val subjectVar = if(subjectName == null) irTemporary(subject, nameHint = "subject") else irVariable(
+		subjectName,
+		subject.type,
+		initializer = subject
+	)
 	+irWhen(type, origin) { block(subjectVar) }
 }
 
-inline fun IrElementScope.irIf(type: IrType, origin: IrStatementOrigin? = IrStatementOrigin.IF, block: IrWhenBuilder.() -> Unit): IrWhen =
+inline fun IrElementScope.irIf(
+	type: IrType,
+	origin: IrStatementOrigin? = IrStatementOrigin.IF,
+	block: IrWhenBuilder.() -> Unit
+): IrWhen =
 	IrWhenBuilder(IrIfThenElseImpl(startOffset, endOffset, type, origin)).apply(block).expression
 
-fun IrElementScope.irIfThen(type: IrType, condition: IrExpression, origin: IrStatementOrigin? = IrStatementOrigin.IF, then: IrExpression): IrWhen =
+fun IrElementScope.irIfThen(
+	type: IrType,
+	condition: IrExpression,
+	origin: IrStatementOrigin? = IrStatementOrigin.IF,
+	then: IrExpression
+): IrWhen =
 	IrIfThenElseImpl(startOffset, endOffset, type, origin).apply {
 		branches += IrBranchImpl(startOffset, endOffset, condition, then)
 	}
@@ -545,7 +575,12 @@ class IrWhenBuilderWithScope(val scope: IrBuilderScope, val expression: IrWhen) 
 	}
 	
 	fun orElse(then: IrExpression) {
-		expression.branches += IrElseBranchImpl(expression.startOffset, expression.endOffset, expression.scope.irTrue(), then)
+		expression.branches += IrElseBranchImpl(
+			expression.startOffset,
+			expression.endOffset,
+			expression.scope.irTrue(),
+			then
+		)
 	}
 	
 	inline fun orElse(then: IrBlockBuilder.() -> Unit) {
@@ -555,7 +590,10 @@ class IrWhenBuilderWithScope(val scope: IrBuilderScope, val expression: IrWhen) 
 
 
 inline fun IrBuilderScope.irIfWithScope(type: IrType, block: IrWhenBuilderWithScope.() -> Unit): IrWhen =
-	IrWhenBuilderWithScope(this, IrIfThenElseImpl(startOffset, endOffset, type, IrStatementOrigin.IF)).apply(block).expression
+	IrWhenBuilderWithScope(
+		this,
+		IrIfThenElseImpl(startOffset, endOffset, type, IrStatementOrigin.IF)
+	).apply(block).expression
 
 fun IrElementScope.irBranch(condition: IrExpression, result: IrExpression): IrBranch =
 	IrBranchImpl(startOffset, endOffset, condition, result)
@@ -571,15 +609,17 @@ fun IrElementScope.primitiveOp1(
 	primitiveOpReturnType: IrType,
 	origin: IrStatementOrigin,
 	dispatchReceiver: IrExpression
-) =
-	primitiveOp1(startOffset, endOffset, primitiveOpSymbol, primitiveOpReturnType, origin, dispatchReceiver)
+) = org.jetbrains.kotlin.ir.builders.primitiveOp1(
+	startOffset, endOffset, primitiveOpSymbol, primitiveOpReturnType, origin, dispatchReceiver
+)
 
 fun IrElementScope.primitiveOp2(
 	primitiveOpSymbol: IrSimpleFunctionSymbol, primitiveOpReturnType: IrType,
 	origin: IrStatementOrigin,
 	argument1: IrExpression, argument2: IrExpression
-) =
-	primitiveOp2(startOffset, endOffset, primitiveOpSymbol, primitiveOpReturnType, origin, argument1, argument2)
+) = org.jetbrains.kotlin.ir.builders.primitiveOp2(
+	startOffset, endOffset, primitiveOpSymbol, primitiveOpReturnType, origin, argument1, argument2
+)
 
 inline fun IrElementScope.irStringTemplate(block: IrExpressionsBuilder.() -> Unit) =
 	IrStringConcatenationImpl(startOffset, endOffset, irBuiltIns.stringType, buildExpressions(block))
@@ -596,36 +636,99 @@ fun IrElementScope.irLogicOr(left: IrExpression, right: IrExpression) =
 
 
 // primitive operations
-inline fun Number.isZero() = toInt() == 0
 
-fun IrElementScope.irBinaryOperator(name: Name, left: IrExpression, right: IrExpression, typeLeft: KotlinType = left.type.toKotlinType(), typeRight: KotlinType = right.type.toKotlinType()) =
-	irCall(context.symbols.getBinaryOperator(name, typeLeft, typeRight), dispatchReceiver = left, valueArguments = listOf(right), type = typeLeft.toIrType())
+fun IrElementScope.irUnaryOperator(
+	name: Name,
+	receiver: IrExpression,
+	receiverType: IrType = receiver.type,
+	type: IrType = receiverType
+): IrCall = irCall(
+	context.symbols.getUnaryOperator(name, receiverType),
+	dispatchReceiver = receiver,
+	type = type
+)
+
+fun IrElementScope.irBinaryOperator(
+	name: Name,
+	left: IrExpression,
+	right: IrExpression,
+	typeLeft: IrType = left.type,
+	typeRight: IrType = right.type,
+	type: IrType = typeLeft
+): IrCall = irCall(
+	context.symbols.getBinaryOperator(name, typeLeft, typeRight),
+	dispatchReceiver = left,
+	valueArguments = listOf(right),
+	type = type
+)
+
+
+object OperatorNames {
+	val UNARY_PLUS = OperatorNameConventions.UNARY_PLUS
+	val UNARY_MINUS = OperatorNameConventions.UNARY_MINUS
+	
+	val ADD = OperatorNameConventions.PLUS
+	val SUB = OperatorNameConventions.MINUS
+	val MUL = OperatorNameConventions.TIMES
+	val DIV = OperatorNameConventions.DIV
+	val MOD = OperatorNameConventions.MOD
+	val REM = OperatorNameConventions.REM
+	
+	val AND = OperatorNameConventions.AND
+	val OR = OperatorNameConventions.OR
+	val XOR = Name.identifier("xor")
+	val INV = Name.identifier("inv")
+	
+	val SHL = Name.identifier("shl")
+	val SHR = Name.identifier("shr")
+	val SHRU = Name.identifier("ushr")
+	
+	val NOT = OperatorNameConventions.NOT
+	
+	val INC = OperatorNameConventions.INC
+	val DEC = OperatorNameConventions.DEC
+	
+	
+	val BINARY = setOf(ADD, SUB, MUL, DIV, MOD, REM, AND, OR, XOR, SHL, SHR, SHRU)
+	val UNARY = setOf(UNARY_PLUS, UNARY_MINUS, INV, NOT, INC, DEC)
+	val ALL = BINARY + UNARY
+}
+
 
 @Suppress("UNCHECKED_CAST")
-fun IrElementScope.irOr(left: IrExpression, right: IrExpression) =
+fun IrElementScope.irBitOr(left: IrExpression, right: IrExpression) =
 	irBinaryOperator(OperatorNames.OR, left, right)
 
 @Suppress("UNCHECKED_CAST")
-fun IrElementScope.irAnd(left: IrExpression, right: IrExpression) =
+fun IrElementScope.irBitAnd(left: IrExpression, right: IrExpression) =
 	irBinaryOperator(OperatorNames.AND, left, right)
 
 fun IrElementScope.irShl(left: IrExpression, right: IrExpression) =
-	irBinaryOperator(OperatorNames.SHL, left, right, typeRight = builtIns.intType)
+	irBinaryOperator(OperatorNames.SHL, left, right, typeRight = irBuiltIns.intType)
 
 fun IrElementScope.irShr(left: IrExpression, right: IrExpression) =
-	irBinaryOperator(OperatorNames.SHR, left, right, typeRight = builtIns.intType)
+	irBinaryOperator(OperatorNames.SHR, left, right, typeRight = irBuiltIns.intType)
 
 fun IrElementScope.irUshr(left: IrExpression, right: IrExpression) =
-	irBinaryOperator(OperatorNames.SHRU, left, right, typeRight = builtIns.intType)
+	irBinaryOperator(OperatorNames.SHRU, left, right, typeRight = irBuiltIns.intType)
 
 fun IrElementScope.irXor(left: IrExpression, right: IrExpression) =
 	irBinaryOperator(OperatorNames.XOR, left, right)
 
 fun IrElementScope.irShiftBits(value: IrExpression, bitsToShiftLeft: Int) =
-	if(bitsToShiftLeft == 0) value else irBinaryOperator(if(bitsToShiftLeft > 0) OperatorNames.SHL else OperatorNames.SHR, value, irInt(abs(bitsToShiftLeft)), typeRight = builtIns.intType)
+	if(bitsToShiftLeft == 0) value else irBinaryOperator(
+		if(bitsToShiftLeft > 0) OperatorNames.SHL else OperatorNames.SHR,
+		value,
+		irInt(abs(bitsToShiftLeft)),
+		typeRight = irBuiltIns.intType
+	)
 
 // equals
-fun IrElementScope.irEquals(argument1: IrExpression, argument2: IrExpression, origin: IrStatementOrigin = IrStatementOrigin.EQEQ) =
+fun IrElementScope.irEquals(
+	argument1: IrExpression,
+	argument2: IrExpression,
+	origin: IrStatementOrigin = IrStatementOrigin.EQEQ
+) =
 	primitiveOp2(irBuiltIns.eqeqSymbol, irBuiltIns.booleanType, origin, argument1, argument2)
 
 fun IrElementScope.irNotEquals(argument1: IrExpression, argument2: IrExpression) =
@@ -655,8 +758,8 @@ fun IrElementScope.irAs(argument: IrExpression, type: IrType) =
 	typeOperator(type, argument, IrTypeOperator.CAST, type)
 
 fun IrElementScope.irPrimitiveCast(expression: IrExpression, type: IrType): IrExpression {
-	val toName = type.classifierOrFail.descriptor.name.identifier.withLog().substringAfter('.')
-	val castFunction = expression.type.classOrNull!!.descriptor.unsubstitutedMemberScope.findFirstFunction("to$toName") { true }
+	val toName = (type.classifierOrFail.owner as IrDeclarationWithName).name.identifier.substringAfter('.')
+	val castFunction = expression.type.classOrNull!!.owner.referenceFunction("to$toName")
 	return irCall(castFunction, dispatchReceiver = expression)
 }
 
@@ -702,15 +805,42 @@ class IrReturnableBlockBuilder(
 		IrReturnableBlockImpl(startOffset, endOffset, resultType!!, returnTargetSymbol, origin, statements)
 }
 
-inline fun IrBuilderScope.irBlock(type: IrType? = null, origin: IrStatementOrigin? = null, body: IrBlockBuilder.() -> Unit) =
-	IrBlockBuilder(startOffset, endOffset, resultType = type, origin = origin, isTransparentScope = false, scope = scope).apply(body).build()
+inline fun IrBuilderScope.irBlock(
+	type: IrType? = null,
+	origin: IrStatementOrigin? = null,
+	body: IrBlockBuilder.() -> Unit
+) =
+	IrBlockBuilder(
+		startOffset,
+		endOffset,
+		resultType = type,
+		origin = origin,
+		isTransparentScope = false,
+		scope = scope
+	).apply(body).build()
 
-inline fun IrBuilderScope.irComposite(type: IrType? = null, origin: IrStatementOrigin? = null, body: IrBlockBuilder.() -> Unit) =
-	IrBlockBuilder(startOffset, endOffset, resultType = type, origin = origin, isTransparentScope = true, scope = scope).apply(body).build()
+inline fun IrBuilderScope.irComposite(
+	type: IrType? = null,
+	origin: IrStatementOrigin? = null,
+	body: IrBlockBuilder.() -> Unit
+) =
+	IrBlockBuilder(
+		startOffset,
+		endOffset,
+		resultType = type,
+		origin = origin,
+		isTransparentScope = true,
+		scope = scope
+	).apply(body).build()
 
-inline fun IrBuilderScope.irReturnableBlock(type: IrType, origin: IrStatementOrigin? = null, body: IrBlockBuilder.() -> Unit) =
+inline fun IrBuilderScope.irReturnableBlock(
+	type: IrType,
+	origin: IrStatementOrigin? = null,
+	body: IrBlockBuilder.() -> Unit
+) =
 	IrReturnableBlockBuilder(
 		startOffset, endOffset,
+		@OptIn(ObsoleteDescriptorBasedAPI::class)
 		IrReturnableBlockSymbolImpl(createAnonymousFunctionDescriptor(returnType = type.toKotlinType())),
 		resultType = type, origin = origin
 	).apply(body).build()

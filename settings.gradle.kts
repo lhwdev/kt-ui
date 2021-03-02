@@ -1,20 +1,26 @@
-pluginManagement {
-	repositories {
-		maven("https://dl.bintray.com/kotlin/kotlin-eap")
-		
-		mavenCentral()
-		
-		maven("https://plugins.gradle.org/m2/")
-	}
-}
 rootProject.apply {
 	name = "kt-ui"
 }
 
 
+includeBuild("includeBuild")
+
 include(":compiler-plugin", ":idea-plugin", ":test")
 include(":core")
 
-@Suppress("UnstableApiUsage")
-enableFeaturePreview("GRADLE_METADATA")
 include("kotlin-compile-test")
+
+
+pluginManagement {
+	repositories {
+		gradlePluginPortal()
+		google()
+	}
+	
+	resolutionStrategy.eachPlugin {
+		if(requested.id.id == "com.android.application") {
+			useModule("com.android.tools.build:gradle:4.0.2") // sync with includeBuild/build.gradle.kts
+		}
+	}
+}
+

@@ -1,3 +1,5 @@
+@file:OptIn(ObsoleteDescriptorBasedAPI::class)
+
 package com.lhwdev.ktui.plugin.compiler.util
 
 import org.jetbrains.kotlin.builtins.extractParameterNameFromFunctionTypeArgument
@@ -8,10 +10,10 @@ import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.descriptors.impl.AnonymousFunctionDescriptor
 import org.jetbrains.kotlin.descriptors.impl.ValueParameterDescriptorImpl
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.declarations.IrValueParameter
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrMemberAccessExpression
-import org.jetbrains.kotlin.ir.expressions.putValueArgument
 import org.jetbrains.kotlin.ir.symbols.IrValueParameterSymbol
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.DescriptorFactory
@@ -25,7 +27,7 @@ fun IrElementScope.createAnonymousFunctionDescriptor(
 	typeParameters: List<TypeParameterDescriptor> = emptyList(),
 	returnType: KotlinType = context.builtIns.unitType,
 	modality: Modality = Modality.FINAL,
-	visibility: Visibility = Visibilities.LOCAL,
+	visibility: DescriptorVisibility = DescriptorVisibilities.LOCAL,
 	owner: DeclarationDescriptor,
 	annotations: Annotations = Annotations.EMPTY,
 	kind: CallableMemberDescriptor.Kind = CallableMemberDescriptor.Kind.SYNTHESIZED,
@@ -42,8 +44,8 @@ fun IrBuilderScope.createAnonymousFunctionDescriptor(
 	typeParameters: List<TypeParameterDescriptor> = emptyList(),
 	returnType: KotlinType = context.builtIns.unitType,
 	modality: Modality = Modality.FINAL,
-	visibility: Visibility = Visibilities.LOCAL,
-	owner: DeclarationDescriptor = scope.scopeOwner,
+	visibility: DescriptorVisibility = DescriptorVisibilities.LOCAL,
+	owner: DeclarationDescriptor = scope.scopeOwnerSymbol.descriptor,
 	annotations: Annotations = Annotations.EMPTY,
 	kind: CallableMemberDescriptor.Kind = CallableMemberDescriptor.Kind.SYNTHESIZED,
 	sourceElement: SourceElement = SourceElement.NO_SOURCE,
@@ -55,7 +57,7 @@ fun IrBuilderScope.createAnonymousFunctionDescriptor(
 
 fun IrBuilderScope.createFunctionDescriptorFromFunctionalType(
 	type: KotlinType,
-	owner: DeclarationDescriptor = scope.scopeOwner
+	owner: DeclarationDescriptor = scope.scopeOwnerSymbol.descriptor
 ) = AnonymousFunctionDescriptor(
 	owner,
 	Annotations.EMPTY,
@@ -91,7 +93,7 @@ fun IrBuilderScope.createFunctionDescriptorFromFunctionalType(
 		},
 		type.getReturnTypeFromFunctionType(),
 		Modality.FINAL,
-		Visibilities.LOCAL,
+		DescriptorVisibilities.LOCAL,
 		null
 	)
 	
@@ -106,10 +108,10 @@ fun IrBuilderScope.createFunctionDescriptorFromFunctionalType(
 }
 
 
-fun IrMemberAccessExpression.putValueArgument(parameter: IrValueParameter, value: IrExpression?) {
+fun IrMemberAccessExpression<*>.putValueArgument(parameter: IrValueParameter, value: IrExpression?) {
 	putValueArgument(parameter.index, value)
 }
 
-fun IrMemberAccessExpression.putValueArgument(parameter: IrValueParameterSymbol, value: IrExpression?) {
-	putValueArgument(parameter.descriptor as ValueParameterDescriptor, value)
+fun IrMemberAccessExpression<*>.putValueArgument(parameter: IrValueParameterSymbol, value: IrExpression?) {
+	putValueArgument(parameter.owner, value)
 }

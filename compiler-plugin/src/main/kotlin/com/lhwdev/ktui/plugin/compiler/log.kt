@@ -71,6 +71,7 @@ interface ColorLogStream : LogStream {
 
 // TODO: close
 
+@Suppress("ArrayInDataClass")
 data class LogConfig(val stackTrace: Array<StackTraceElement>? = null, val indents: Int? = null, val mute: Boolean = false, val isIndentFixed: Boolean = false) {
 	fun merge(other: LogConfig) =
 		LogConfig(
@@ -254,7 +255,10 @@ fun logInternalWithoutNewline(content: String, color: String = ConsoleColors.RES
 	}
 	val text = content.split('\n')
 	
-	val header = "${ConsoleColors.WHITE}${sDateFormat.format(Date())} | $color${currentStackTraceLength.toStringFilling(3)}${ConsoleColors.WHITE} | $color$prefix" + (0 until indents).joinToString(separator = "") { "  " }
+	val header =
+		"${ConsoleColors.WHITE}${sDateFormat.format(Date())} | $color${currentStackTraceLength.toStringFilling(3)}${ConsoleColors.WHITE} | ${ConsoleColors.RESET}$color$prefix" + (0 until indents).joinToString(
+			separator = ""
+		) { "  " }
 //	val header = headerPrefix
 	val builder = StringBuilder()
 	builder.append(/*if(text[0].isEmpty()) "" else*/ if(isLastNewline) header + text[0] + suffix else color + prefix + text[0] + suffix)

@@ -1,5 +1,4 @@
-import com.asm.build.kotlinVersion
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import com.lhwdev.build.*
 
 
 plugins {
@@ -7,8 +6,13 @@ plugins {
 	kotlin("kapt")
 //	`java-gradle-plugin`
 //	`maven-publish`
+	
+	id("common-plugin")
 }
 
+kotlin {
+	setup()
+}
 
 //gradlePlugin {
 //	plugins {
@@ -20,26 +24,9 @@ plugins {
 //}
 
 
-kotlin {
-	sourceSets.all {
-		with(languageSettings) {
-			useExperimentalAnnotation("kotlin.Experimental")
-			enableLanguageFeature("InlineClasses")
-		}
-	}
-}
-
-tasks {
-	withType<KotlinCompile> {
-		kotlinOptions {
-			jvmTarget = "1.8"
-		}
-	}
-	
-	named<Test>("test") {
-		outputs.upToDateWhen { false }
-		useJUnit()
-	}
+tasks.named<Test>("test") {
+	outputs.upToDateWhen { false }
+	useJUnit()
 }
 
 //publishing {
@@ -67,7 +54,6 @@ dependencies {
 //	compileOnly("org.jetbrains.kotlin:kotlin-platform-api:$kotlinVersion")
 	
 	// kotlin
-	implementation(kotlin("stdlib-jdk8"))
 	implementation(kotlin("reflect"))
 	
 	// test

@@ -2,73 +2,85 @@
 
 package com.lhwdev.ktui.plugin.compiler
 
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation
-import org.jetbrains.kotlin.ir.util.findFirstFunction
+import com.lhwdev.ktui.plugin.compiler.util.referenceFunction
+import com.lhwdev.ktui.plugin.compiler.util.referencePackage
+import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
+import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.resolve.descriptorUtil.resolveTopLevelClass
 
 
 const val PLUGIN_ID = "com.lhwdev.ktui.plugin"
 
 
-object Widgets {
+object UiNameConventions {
 	const val buildScope = "\$buildScope"
 	const val changed = "\$changed"
 	const val default = "\$default"
 }
 
-object UiLibrary {
-	val PACKAGE = FqName("com.lhwdev.ktui")
+object UiLibraryNames {
+	val BuildScope = Name.identifier("BuildScope")
 	
-	val WIDGET = PACKAGE.child(Name.identifier("Widget"))
-	val INLINE_WIDGET = PACKAGE.child(Name.identifier("InlineWidget"))
-	val DEFAULT_PARAMETER = PACKAGE.child(Name.identifier("DefaultParameter"))
-	val WIDGET_FUNCTION_PURE_USAGE = PACKAGE.child(Name.identifier("WidgetFunctionPureUsage"))
+	val Widget = Name.identifier("Widget")
+	val InlineWidget = Name.identifier("InlineWidget")
+	val DefaultParameter = Name.identifier("DefaultParameter")
+	val WidgetFunctionPureUsage = Name.identifier("WidgetFunctionPureUsage")
 	
-	val BUILD_SCOPE = PACKAGE.child(Name.identifier("BuildScope"))
+	val remember = Name.identifier("remember")
 	
-	val REMEMBER = PACKAGE.child(Name.identifier("remember"))
 	
-	object BuildScope {
-		object Start {
+	object BuildScopeClass {
+		object start {
 			const val idState = "idState"
 			const val attrs = "attrs"
 			const val keyIndex = "keyIndex"
 		}
 		
-		object StartExpr {
+		object startExpr {
 			const val id = "id"
 		}
 	}
 }
 
-object UiLibraryDescriptors {
-	val buildScope = module.resolveTopLevelClass(UiLibrary.BUILD_SCOPE, NoLookupLocation.FROM_BACKEND)!!
+object UiLibraryFqNames {
+	val uiPackage = FqName("com.lhwdev.ktui")
 	
-	val widget = module.resolveTopLevelClass(UiLibrary.WIDGET, NoLookupLocation.FROM_BACKEND)!!
-	val defaultParameter = module.resolveTopLevelClass(UiLibrary.DEFAULT_PARAMETER, NoLookupLocation.FROM_BACKEND)!!
-	val widgetFunctionPureUsage = module.resolveTopLevelClass(UiLibrary.WIDGET_FUNCTION_PURE_USAGE, NoLookupLocation.FROM_BACKEND)!!
+	val Widget = uiPackage.child(UiLibraryNames.Widget)
+	val InlineWidget = uiPackage.child(UiLibraryNames.InlineWidget)
+	val DefaultParameter = uiPackage.child(UiLibraryNames.DefaultParameter)
+	val WidgetFunctionPureUsage = uiPackage.child(UiLibraryNames.WidgetFunctionPureUsage)
+}
+
+@Suppress("PropertyName")
+class UiLibrary(pluginContext: IrPluginContext) {
+	val uiPackage = pluginContext.referencePackage(UiLibraryFqNames.uiPackage)
+	val buildScope = uiPackage.referenceClass(UiLibraryNames.BuildScope)
+	val buildScopeType = buildScope.defaultType
+	val buildScopeClass = buildScope.owner
 	
-	val key = module.resolveTopLevelClass(UiLibrary.PACKAGE.child(Name.identifier("Key")), NoLookupLocation.FROM_BACKEND)!!
+	val widget = uiPackage.referenceClass(UiLibraryNames.Widget)
+	val defaultParameter = uiPackage.referenceClass(UiLibraryNames.DefaultParameter)
+	val widgetFunctionPureUsage = uiPackage.referenceClass(UiLibraryNames.WidgetFunctionPureUsage)
 	
-	object BuildScope {
-		private fun function(name: String, valueParametersCount: Int) =
-			buildScope.findFirstFunction(name) { it.valueParameters.size == valueParametersCount }
+	val key = pluginContext.referenceClass(UiLibraryFqNames.uiPackage.child(Name.identifier("Key")))!!
+	
+	val BuildScope = BuildScopeClass()
+	
+	inner class BuildScopeClass {
+		val start = buildScopeClass.referenceFunction("start", 1)
+		val end = buildScopeClass.referenceFunction("end", 0)
+		val endRestartable = buildScopeClass.referenceFunction("end", 1)
 		
-		val start = function("start", 1)
-		val end = function("end", 0)
-		val endRestartable = function("end", 1)
+		val startExpr = buildScopeClass.referenceFunction("startExpr")
+		val endExpr = buildScopeClass.referenceFunction("endExpr")
 		
-		val startExpr = function("startExpr", 1)
-		val endExpr = function("endExpr", 0)
+		val startReplaceableGroup = buildScopeClass.referenceFunction("startReplaceableGroup")
+		val endReplaceableGroup = buildScopeClass.referenceFunction("endReplaceableGroup")
 		
-		val startReplaceableGroup = function("startReplaceableGroup", 2)
-		val endReplaceableGroup = function("endReplaceableGroup", 0)
+		val startRemovableGroup = buildScopeClass.referenceFunction("startRemovableGroup")
+		val endRemovableGroup = buildScopeClass.referenceFunction("endRemovableGroup")
 		
-		val startRemovableGroup = function("startRemovableGroup", 1)
-		val endRemovableGroup = function("endRemovableGroup", 0)
-		
-		val isChanged = function("isChanged", 1)
+		val isChanged = buildScopeClass.referenceFunction("isChanged")
 	}
 }

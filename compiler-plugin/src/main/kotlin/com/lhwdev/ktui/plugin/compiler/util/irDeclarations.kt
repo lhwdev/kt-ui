@@ -1,22 +1,19 @@
 package com.lhwdev.ktui.plugin.compiler.util
 
-import org.jetbrains.kotlin.descriptors.SourceElement
-import org.jetbrains.kotlin.descriptors.annotations.Annotations
-import org.jetbrains.kotlin.descriptors.impl.LocalVariableDescriptor
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.declarations.impl.IrVariableImpl
+import org.jetbrains.kotlin.ir.descriptors.WrappedVariableDescriptor
 import org.jetbrains.kotlin.ir.expressions.IrBlockBody
+import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.impl.IrBlockBodyImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrExpressionBodyImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrVariableSymbolImpl
 import org.jetbrains.kotlin.ir.types.IrType
-import org.jetbrains.kotlin.ir.types.toKotlinType
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.KotlinType
 
 
 // Variables
@@ -25,34 +22,39 @@ fun IrBuilderScope.irVariable(
 	name: String,
 	type: IrType,
 	isVar: Boolean = false,
-	isDelegated: Boolean = false,
+	isConst: Boolean = false,
 	isLateinit: Boolean = false,
-	annotations: Annotations = Annotations.EMPTY,
+	annotations: List<IrConstructorCall> = emptyList(),
 	origin: IrDeclarationOrigin = IrDeclarationOrigin.DEFINED
-) = IrVariableImpl(startOffset, endOffset, origin, IrVariableSymbolImpl(
-	LocalVariableDescriptor(scope.scopeOwner, annotations, Name.guessByFirstCharacter(name),
-		type.toKotlinType(), isVar, isDelegated, isLateinit, SourceElement.NO_SOURCE)), type)
+): IrVariable {
+	val name2 = Name.guessByFirstCharacter(name)
+	val descriptor = WrappedVariableDescriptor()
+	val variable = IrVariableImpl(
+		startOffset, endOffset, origin, IrVariableSymbolImpl(descriptor), name2, type, isVar, isConst, isLateinit
+	)
+	variable.annotations = annotations
+	return variable
+}
 
 fun IrBuilderScope.irVariable(
 	name: String,
 	type: IrType,
 	isVar: Boolean = false,
-	isDelegated: Boolean = false,
+	isConst: Boolean = false,
 	isLateinit: Boolean = false,
-	annotations: Annotations = Annotations.EMPTY,
+	annotations: List<IrConstructorCall> = emptyList(),
 	origin: IrDeclarationOrigin = IrDeclarationOrigin.DEFINED,
 	initializer: IrExpression
-) = irVariable(name, type, isVar, isDelegated, isLateinit, annotations, origin).also {
+): IrVariable = irVariable(name, type, isVar, isConst, isLateinit, annotations, origin).also {
 	it.initializer = initializer
 }
 
 fun IrStatementsScope<*>.irTemporary(
 	value: IrExpression,
 	nameHint: String? = null,
-	typeHint: KotlinType? = null,
-	irType: IrType? = null
+	type: IrType? = null
 ): IrVariable {
-	val temporary = scope.createTemporaryVariable(value, nameHint, type = typeHint, irType = irType)
+	val temporary = scope.createTemporaryVariable(value, nameHint, irType = type)
 	+temporary
 	return temporary
 }
@@ -60,9 +62,9 @@ fun IrStatementsScope<*>.irTemporary(
 fun IrStatementsScope<*>.irTemporaryVar(
 	value: IrExpression,
 	nameHint: String? = null,
-	typeHint: KotlinType? = null
+	type: IrType? = null
 ): IrVariable {
-	val temporary = scope.createTemporaryVariable(value, nameHint, isMutable = true, type = typeHint)
+	val temporary = scope.createTemporaryVariable(value, nameHint, isMutable = true, irType = type)
 	+temporary
 	return temporary
 }
@@ -80,15 +82,14 @@ fun IrStatementsScope<*>.irTemporaryVariable(
 fun IrBuilderScope.irCreateTemporary(
 	value: IrExpression,
 	nameHint: String? = null,
-	typeHint: KotlinType? = null,
-	irType: IrType? = null
-): IrVariable = scope.createTemporaryVariable(value, nameHint, type = typeHint, irType = irType)
+	type: IrType? = null
+): IrVariable = scope.createTemporaryVariable(value, nameHint, irType = type)
 
 fun IrBuilderScope.irCreateTemporaryVar(
 	value: IrExpression,
 	nameHint: String? = null,
-	typeHint: KotlinType? = null
-): IrVariable = scope.createTemporaryVariable(value, nameHint, isMutable = true, type = typeHint)
+	type: IrType? = null
+): IrVariable = scope.createTemporaryVariable(value, nameHint, isMutable = true, irType = type)
 
 fun IrBuilderScope.irCreateTemporaryVariable(
 	type: IrType,

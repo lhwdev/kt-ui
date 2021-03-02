@@ -18,6 +18,3 @@
   val widget: @Widget () -> Unit = { MyWidget(12345) }
   ```
   
-  
-  Currently, kt-ui uses `Kotlin 1.4-M1` due to compiler implementation.
-  Until Kotlin 1.4 is released and kt-ui 1.0.0 is released, kt-ui will stay experimental.

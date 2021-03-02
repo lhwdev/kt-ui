@@ -1,35 +1,36 @@
 package com.lhwdev.ktui.plugin.compiler
 
-import com.lhwdev.ktui.plugin.compiler.util.provideContext
-import org.jetbrains.kotlin.ir.IrElement
+import org.jetbrains.kotlin.backend.common.FileLoweringPass
+import org.jetbrains.kotlin.backend.common.lower
 
 
-private val sEmptyScope = object : UiIrPhase {
-	override fun lower() {
-	}
-}
+private val sEmptyScope = object : UiIrPhase {}
 
 
-fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit): IrElement {
-	sCurrentTransformation = this
-	provideContext(pluginContext) {
-		try {
-			sEmptyScope.apply {
-				+object : AbstractUiIrPhase() {
-					override val phaseName = name
-					
-					override fun lower() {
-						block()
-					}
+fun UiIrContext.transformations(name: String = "", block: UiIrPhase.() -> Unit) {
+	val last = sCurrentContext
+	sCurrentContext = this
+	
+	try {
+		sEmptyScope.apply {
+			+object : AbstractUiIrPhase(), UiIrRunPhase {
+				override val phaseName = name
+				
+				override fun lower() {
+					block()
 				}
 			}
-		} finally {
-			sCurrentTransformation = null
 		}
+	} finally {
+		sCurrentContext = last
 	}
-	return target
 }
 
-private var sCurrentTransformation: UiIrContext? = null
+fun UiIrPhase.doLower() {
+	if(this is UiIrRunPhase) lower()
+	if(this is FileLoweringPass) lower(moduleFragment)
+}
 
-fun currentTransformation() = sCurrentTransformation!!
+private var sCurrentContext: UiIrContext? = null
+
+val currentContext get() = sCurrentContext!!

@@ -7,8 +7,8 @@ import com.lhwdev.ktui.plugin.compiler.logColor
 import io.github.classgraph.ClassGraph
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.ManualLanguageFeatureSetting
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.cli.jvm.plugins.ServiceLoaderLite
@@ -44,9 +44,13 @@ class Test {
 			
 			override fun hasErrors() = has
 			
-			override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageLocation?) {
-				
-				if(severity == CompilerMessageSeverity.ERROR || severity == CompilerMessageSeverity.EXCEPTION) has = true
+			override fun report(
+				severity: CompilerMessageSeverity,
+				message: String,
+				location: CompilerMessageSourceLocation?
+			) {
+				if(severity == CompilerMessageSeverity.ERROR || severity == CompilerMessageSeverity.EXCEPTION) has =
+					true
 				val color = when(severity) {
 					CompilerMessageSeverity.ERROR -> ConsoleColors.RED
 					CompilerMessageSeverity.EXCEPTION -> ConsoleColors.RED_BOLD
@@ -65,15 +69,22 @@ class Test {
 		}, Services.EMPTY, K2JVMCompilerArguments().apply {
 			useIR = true
 			classpathAsList = mutableListOf<File>().apply {
+				val kotlinVersion = "1.4.30"
 				val hostClasspaths = getHostClasspaths()
-				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib.jar",
+				add(
+					findInHostClasspath(
+						hostClasspaths, "kotlin-stdlib.jar",
 //					Regex("(kotlin-stdlib|kotlin-runtime)(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
-					Regex("kotlin-stdlib-1.4-M2.jar")
-				)!!)
-				add(findInHostClasspath(hostClasspaths, "kotlin-stdlib-jdk.jar",
+						Regex("kotlin-stdlib-$kotlinVersion.jar")
+					)!!
+				)
+				add(
+					findInHostClasspath(
+						hostClasspaths, "kotlin-stdlib-jdk.jar",
 //					Regex("kotlin-stdlib-jdk[0-9]+(-[0-9]+\\.[0-9]+(\\.[0-9]+)?)([-0-9a-zA-Z]+)?\\.jar")
-					Regex("kotlin-stdlib-jdk8-1.4-M2.jar")
-				)!!)
+						Regex("kotlin-stdlib-jdk8-$kotlinVersion.jar")
+					)!!
+				)
 				add(File("C:\\Users\\LHW\\AppData\\Local\\Android\\Sdk\\platforms\\android-29\\android.jar"))
 				
 			}
@@ -92,7 +103,8 @@ class Test {
 //				"D:/LHW/asm/app/new/com.kt.core/compiler-test-template/source"
 //			""".trimIndent(),
 				
-				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\test\\src\\main\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
+				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\test\\src\\main\\kotlin").listKtFilesRecursive()
+					.map(File::getAbsolutePath).toTypedArray()
 //				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\commonMain\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray(),
 //				*File("D:\\LHW\\asm\\app\\new\\com.asmx.core\\ui\\core\\src\\androidMain\\kotlin").listKtFilesRecursive().map(File::getAbsolutePath).toTypedArray()
 			)

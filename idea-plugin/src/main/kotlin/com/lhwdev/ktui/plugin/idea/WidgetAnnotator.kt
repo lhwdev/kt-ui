@@ -1,18 +1,3 @@
-/*
- * Copyright 2019 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.lhwdev.ktui.plugin.idea
 
 import com.intellij.lang.annotation.AnnotationHolder
@@ -22,13 +7,17 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiElement
-import com.lhwdev.ktui.plugin.compiler.anyWidgetKind
+import com.lhwdev.ktui.plugin.compiler.UiLibraryNames
 import org.jetbrains.kotlin.analyzer.AnalysisResult
+import org.jetbrains.kotlin.descriptors.annotations.Annotated
 import org.jetbrains.kotlin.idea.caches.resolve.analyzeWithAllCompilerChecks
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
+
+
+val Annotated.isWidget get() = annotations.hasAnnotation(UiLibraryNames.Widget)
 
 
 // Used to apply styles for calls to @Widget functions.
@@ -76,6 +65,6 @@ class WidgetAnnotator : Annotator {
 	}
 	
 	private fun shouldStyleCall(bindingContext: BindingContext, element: KtCallExpression): Boolean {
-		return element.getResolvedCall(bindingContext)?.candidateDescriptor?.anyWidgetKind != null
+		return element.getResolvedCall(bindingContext)?.candidateDescriptor?.isWidget == true
 	}
 }

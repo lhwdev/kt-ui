@@ -3,8 +3,8 @@ package com.lhwdev.ktui
 import io.github.classgraph.ClassGraph
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.ManualLanguageFeatureSetting
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.cli.jvm.plugins.ServiceLoaderLite
@@ -45,9 +45,14 @@ class Test {
 			
 			override fun hasErrors() = has
 			
-			override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageLocation?) {
+			override fun report(
+				severity: CompilerMessageSeverity,
+				message: String,
+				location: CompilerMessageSourceLocation?
+			) {
 				
-				if(severity == CompilerMessageSeverity.ERROR || severity == CompilerMessageSeverity.EXCEPTION) has = true
+				if(severity == CompilerMessageSeverity.ERROR || severity == CompilerMessageSeverity.EXCEPTION) has =
+					true
 				val color = when(severity) {
 					CompilerMessageSeverity.ERROR -> ConsoleColors.RED
 					CompilerMessageSeverity.EXCEPTION -> ConsoleColors.RED_BOLD
